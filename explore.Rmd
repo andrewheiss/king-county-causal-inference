@@ -9,6 +9,13 @@ library(here)
 alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
                           "Question 1_ Fare Reinstatement", 
                           "alltrips_2020-09_to_2020-10.csv"))
+
+lift <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
+lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
+lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
+
+asdf <- lift_registry %>% 
+  filter(card_id == "94262-1")
 ```
 
 
