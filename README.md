@@ -3,6 +3,9 @@
 
 # King County causal inference challenge
 
+[**Challenge
+details**](https://casbs.stanford.edu/causal-inference-social-impact-lab-s-data-challenge)
+
 ## Our initial hypotheses
 
 **Question 1: Fare Reinstatement**
