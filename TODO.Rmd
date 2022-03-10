@@ -11,3 +11,9 @@ RCT:
 - Figure out modeling approach (wave 1 vs. wave 2)
 - Figure out confounding and self-selection
 - Figure out if they've added a treatment column
+
+
+asdf
+
+asdf
+asdf
