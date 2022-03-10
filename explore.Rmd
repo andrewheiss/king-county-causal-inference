@@ -1,0 +1,14 @@
+---
+title: "Data exploration"
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(here)
+
+alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                          "Question 1_ Fare Reinstatement", 
+                          "alltrips_2020-09_to_2020-10.csv"))
+```
+
+
