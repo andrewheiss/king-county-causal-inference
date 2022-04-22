@@ -5,11 +5,26 @@ title: "Data exploration"
 ```{r setup, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(here)
+library(sf)
+```
 
+
+```{r load Q1 data, warning=FALSE, message=FALSE}
 alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
                           "Question 1_ Fare Reinstatement", 
                           "alltrips_2020-09_to_2020-10.csv"))
 
+apc_routes <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                          "Question 1_ Fare Reinstatement", 
+                          "apc_detailed_09-01-2020_10-31-2020.csv"))
+
+# The stop level data is the main data set intended to be used 
+apc_stops <- read_csv("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv")
+head(apc_stops)
+```
+
+
+```{r load Q2 data, warning=FALSE, message=FALSE}
 lift <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
 lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
 lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
@@ -18,4 +33,8 @@ asdf <- lift_registry %>%
   filter(card_id == "94262-1")
 ```
 
+
+```{r load sf data, warning=FALSE, message=FALSE}
+kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
+```
 
