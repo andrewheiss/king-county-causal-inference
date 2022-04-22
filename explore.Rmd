@@ -6,6 +6,7 @@ title: "Data exploration"
 library(tidyverse)
 library(here)
 library(sf)
+library(data.table)
 ```
 
 
@@ -19,7 +20,11 @@ apc_routes <- read_csv(here("data", "raw_data", "raw_data_from_king_county",
                           "apc_detailed_09-01-2020_10-31-2020.csv"))
 
 # The stop level data is the main data set intended to be used 
-apc_stops <- read_csv("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv")
+apc_stops <- fread("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv")
+
+# a slower way to load the data. 
+# apc_stops <- read_csv("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv",
+#                       guess_max = Inf)
 head(apc_stops)
 ```
 
