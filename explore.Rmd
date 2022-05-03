@@ -1,5 +1,8 @@
 ---
 title: "Data exploration"
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, warning=FALSE, message=FALSE}
@@ -8,7 +11,6 @@ library(here)
 library(sf)
 library(data.table)
 ```
-
 
 ```{r load Q1 data, warning=FALSE, message=FALSE}
 alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
@@ -25,8 +27,31 @@ apc_stops <- fread("data/raw_data/raw_data_from_king_county/stop_activity_granul
 # a slower way to load the data. 
 # apc_stops <- read_csv("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv",
 #                       guess_max = Inf)
-head(apc_stops)
 ```
+
+
+```{r explore apc_stops, warning=FALSE, message=FALSE}
+head(apc_stops)
+summary(apc_stops$OPERATION_DATE) # date range 2020-09-01 ~ 2020-10-31
+
+n_trip_id <- apc_stops %>% select(TRIP_ID) %>% 
+  count()
+n_trip_id_unique <- apc_stops %>% select(TRIP_ID) %>% 
+  n_distinct()
+n_trip_id - n_trip_id_unique 
+# the difference shows that the trip_id is the id for the route, not for the individual passenger
+```
+
+```{r derive sub-dataframe for apc_stops, warning=FALSE, message=FALSE}
+
+apc_stops_short <- apc_stops %>% 
+  group_by(STOP_ID, OPERATION_DATE)%>% 
+  summarise(boarding_count = sum(PSNGR_BOARDINGS),
+            alighting_count = sum(PSNGR_ALIGHTINGS))
+
+```
+
+
 
 
 ```{r load Q2 data, warning=FALSE, message=FALSE}
@@ -38,8 +63,99 @@ asdf <- lift_registry %>%
   filter(card_id == "94262-1")
 ```
 
-
 ```{r load sf data, warning=FALSE, message=FALSE}
 kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
 ```
 
+## Instructions for Question 1
+
+Question \#1: How did the October 1, 2020 reinstatement of fares affect
+ridership on King County Metro? Did the reinstatement of fares by King
+County Metro have differential effects on ridership among socio-economic
+groups?
+
+● Definitions: By "ridership", we mean the stop-level passenger
+boardings (i.e., getting on the bus) and alightings (i.e., getting off
+the bus).
+
+● Variables: The data file
+stop_activity_granular_2020-09-01_2020-10-31.csv provides automated
+passenger counts at the stop-level for Metro buses. The variable
+`stop_id` provides the unique identifier for each bus stop. The variable
+`psngr_boardings` provides the count of boarding passengers at the
+corresponding bus stop. The variable `psngr_alightings` provides the
+count of alighting passengers at the corresponding bus stop.
+
+\*\*The stop-level APC data can be linked to the KCM_Stops_Data shape
+files using the `stop_id` variable.\* Because passenger counter systems
+are not installed on every bus, the ridership data is a sample of
+overall system ridership. The data file alltrips_2020-09_to_2020-10.csv
+provides schedule information for every trip on the system for each
+service change period (typically two weeks or longer). Within each
+service change period, trip data is provided for weekday, Saturday, and
+Sunday schedules.
+
++-------------------+-----------------------------------------------------+
+| **Column Name**   | **Description**                                     |
++-------------------+-----------------------------------------------------+
+| OPERATION_DATE    | The date on which the trip was observed in          |
+|                   | YYYY-MM-DD format                                   |
++-------------------+-----------------------------------------------------+
+| BOOKING_ID        | Shorthand code for the service change in a format   |
+|                   | expected by the Hastus NetPlan and ATP modules      |
++-------------------+-----------------------------------------------------+
+| SCHED_D           | 0 = weekday, 1 = Saturday, 2 = Sunday               |
+| AY_TYPE_CODED_NUM |                                                     |
++-------------------+-----------------------------------------------------+
+| SERVICE_RTE_LIST  | The customer-facing number of the route (as text to |
+|                   | facilitate the creation of the products based on    |
+|                   | this table), i.e. the number used in timetables, at |
+|                   | bus stops, in printed materials, and on buses'      |
+|                   | headsigns. This number may be different than        |
+|                   | BLOCK_RTE_NUM. All routes have a service number,    |
+|                   | even routes that are not known as numbered routes   |
+|                   | to customers. E.g. A line = route 671.              |
++-------------------+-----------------------------------------------------+
+| TR                | Cardinal direction of trip                          |
+| IP_COMPASS_DIR_CD |                                                     |
++-------------------+-----------------------------------------------------+
+| KEY_BLOCK_NUM     | Unique identifier of vehicle assignment of trip,    |
+|                   | calculated as follows:  (SCHED_DAY_TYPE_CODED_NUM   |
+|                   | \*100000) + (BLOCK_RTE_NUM \* 100) + BLOCK_RUN_NUM  |
++-------------------+-----------------------------------------------------+
+| STOP_SEQUENCE_NUM | Numbered sequence of all bus stops, merging all     |
+|                   | patterns into a single sequence to provide a proper |
+|                   | sequence of stops, regardless of which pattern a    |
+|                   | particular trip follows.                            |
++-------------------+-----------------------------------------------------+
+| **STOP_ID**       | Unique identifier for each bus stop                 |
++-------------------+-----------------------------------------------------+
+| STOP_NM           | The name of the stop                                |
++-------------------+-----------------------------------------------------+
+| SCHED_ARRIVAL     | The time the bus is scheduled to arrive at the      |
+| \                 | stop, expressed as hh:mm:ss without the colons.     |
+| _SECS_AFTER_MIDNT | Valid only for timestops.                           |
++-------------------+-----------------------------------------------------+
+| FULL_DATE         | The date on which the trip was observed in          |
+|                   | MM/DD/YYYY format                                   |
++-------------------+-----------------------------------------------------+
+| ACTUAL_ARRIVAL    | The time the bus was measured to have arrived at    |
+| \                 | the stop, expressed as hh:mm:ss without the colons  |
+| _SECS_AFTER_MIDNT |                                                     |
++-------------------+-----------------------------------------------------+
+| ACTUAL_DEPARTURE  | The time the bus was measured to have left the      |
+| \                 | stop, expressed as hh:mm:ss without the colons      |
+| _SECS_AFTER_MIDNT |                                                     |
++-------------------+-----------------------------------------------------+
+| PSNGR_BOARDINGS   | The number of passengers that boarded the bus       |
++-------------------+-----------------------------------------------------+
+| PSNGR_ALIGHTINGS  | The number of passengers that departed the bus      |
++-------------------+-----------------------------------------------------+
+| **TRIP_ID**       | Trip id                                             |
++-------------------+-----------------------------------------------------+
+| DEP_PSNGR_LOAD    | Number of passengers on the coach                   |
++-------------------+-----------------------------------------------------+
+| Column Name       | Description                                         |
++-------------------+-----------------------------------------------------+
+
+: Code book for apc_stops
