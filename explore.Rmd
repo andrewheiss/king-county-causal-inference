@@ -10,6 +10,9 @@ library(tidyverse)
 library(here)
 library(sf)
 library(data.table)
+library(lubridate)
+library(brms)
+library(lme4)
 ```
 
 ```{r load Q1 data, warning=FALSE, message=FALSE}
@@ -42,14 +45,18 @@ n_trip_id - n_trip_id_unique
 # the difference shows that the trip_id is the id for the route, not for the individual passenger
 ```
 
+
+
 ```{r derive sub-dataframe for apc_stops, warning=FALSE, message=FALSE}
 
 apc_stops_short <- apc_stops %>% 
   group_by(STOP_ID, OPERATION_DATE)%>% 
+  mutate(OPERATION_DATE = ymd(OPERATION_DATE)) %>% 
   summarise(boarding_count = sum(PSNGR_BOARDINGS),
             alighting_count = sum(PSNGR_ALIGHTINGS)) %>% 
   mutate(total_psngr_count = sum(boarding_count + alighting_count),
-         after_reinstate = ifelse(OPERATION_DATE >= 2020-10-01, TRUE, FALSE))
+         after_reinstate = ifelse(OPERATION_DATE >= ymd("2020-10-01"), TRUE, FALSE),
+         day_number = yday(OPERATION_DATE))
 
 ```
 ```{r run explorative regression, warning=FALSE, message=FALSE}
@@ -58,6 +65,19 @@ summary(naive_q1_model)
 ```
 
 
+```{r model bayes}
+model_bayes <- brm(
+  bf(total_psngr_count ~ after_reinstate + (1 | STOP_ID) + (1 | day_number)),
+  data = apc_stops_short
+)
+
+model_bayes
+```
+
+```{r model multilevel}
+model_multilevel <- lmer(total_psngr_count ~ after_reinstate + (1 | STOP_ID) + (1 | day_number),
+                         data = apc_stops_short)
+```
 
 
 ```{r load Q2 data, warning=FALSE, message=FALSE}
