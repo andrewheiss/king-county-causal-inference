@@ -99,6 +99,12 @@ asdf <- lift_registry %>%
   filter(card_id == "94262-1")
 ```
 
+## SF data
+
+link to ridership data by `STOP_ID`
+link to ACS data by `GEOID` (derived using codes in the R script)
+
+
 ```{r load sf data, warning=FALSE, message=FALSE}
 kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
 ```
