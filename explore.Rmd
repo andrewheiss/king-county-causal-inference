@@ -1,7 +1,7 @@
 ---
 title: "Data exploration"
-editor_options: 
-  markdown: 
+editor_options:
+  markdown:
     wrap: 72
 ---
 
@@ -14,6 +14,8 @@ library(lubridate)
 library(brms)
 library(lme4)
 ```
+
+## Load Q1 data
 
 ```{r load Q1 data, warning=FALSE, message=FALSE}
 alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
@@ -32,6 +34,37 @@ apc_stops <- fread("data/raw_data/raw_data_from_king_county/stop_activity_granul
 #                       guess_max = Inf)
 ```
 
+## Load SF data
+
+link to ridership data by `STOP_ID` link to ACS data by `GEOID` (derived
+using codes in the R script)
+
+```{r load sf data, warning=FALSE, message=FALSE}
+kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
+```
+
+## Load Q2 data
+
+```{r load Q2 data, warning=FALSE, message=FALSE}
+lift_boardings <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
+lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
+lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
+
+```
+
+-   Registry means enrollment in the reduced fare program, after
+    expiration date, the card become a normal adult card, normally valid
+    2 years, but annual pass's registery is good for one year (details
+    in May 19 Office Hour record)
+
+-   sales means buying passes, loading money or other "products" to the
+    card
+
+-   boardings means using the cards
+
+`card_id` is the shared column
+
+## Explore and analysis Q1 data
 
 ```{r explore apc_stops, warning=FALSE, message=FALSE}
 head(apc_stops)
@@ -44,8 +77,6 @@ n_trip_id_unique <- apc_stops %>% select(TRIP_ID) %>%
 n_trip_id - n_trip_id_unique 
 # the difference shows that the trip_id is the id for the route, not for the individual passenger
 ```
-
-
 
 ```{r derive sub-dataframe for apc_stops, warning=FALSE, message=FALSE}
 
@@ -65,7 +96,6 @@ naive_q1_model <- lm (total_psngr_count ~ after_reinstate, data = apc_stops_shor
 summary(naive_q1_model)
 ```
 
-
 ```{r model bayes}
 model_bayes <- brm(
   bf(total_psngr_count ~ after_reinstate + (1 | STOP_ID) + (1 | day_number)),
@@ -83,33 +113,18 @@ model_bayes <- brm(
 )
 ```
 
-
 ```{r model multilevel}
 model_multilevel <- lmer(total_psngr_count ~ after_reinstate + (1 | STOP_ID) + (1 | day_number),
                          data = apc_stops_short)
 ```
 
+## Model specification plan for Q1
 
-```{r load Q2 data, warning=FALSE, message=FALSE}
-lift <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
-lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
-lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
+**Question 1:**
 
-asdf <- lift_registry %>% 
-  filter(card_id == "94262-1")
-```
+`trip_counts ~ after_oct_1_2020 + time_effects + person_effects + stop_effects + route_effects + provider_effects + (fraction bachelors + median_income + weekday) + car ownership and other ACS/census things + pandemic_case_count + national_case_count + subgroups`
 
-## SF data
-
-link to ridership data by `STOP_ID`
-link to ACS data by `GEOID` (derived using codes in the R script)
-
-
-```{r load sf data, warning=FALSE, message=FALSE}
-kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
-```
-
-## Instructions for Question 1
+## Instructions and Codebook for Q1
 
 Question \#1: How did the October 1, 2020 reinstatement of fares affect
 ridership on King County Metro? Did the reinstatement of fares by King
@@ -137,67 +152,305 @@ service change period (typically two weeks or longer). Within each
 service change period, trip data is provided for weekday, Saturday, and
 Sunday schedules.
 
-+-------------------+-----------------------------------------------------+
-| **Column Name**   | **Description**                                     |
-+-------------------+-----------------------------------------------------+
-| OPERATION_DATE    | The date on which the trip was observed in          |
-|                   | YYYY-MM-DD format                                   |
-+-------------------+-----------------------------------------------------+
-| BOOKING_ID        | Shorthand code for the service change in a format   |
-|                   | expected by the Hastus NetPlan and ATP modules      |
-+-------------------+-----------------------------------------------------+
-| SCHED_D           | 0 = weekday, 1 = Saturday, 2 = Sunday               |
-| AY_TYPE_CODED_NUM |                                                     |
-+-------------------+-----------------------------------------------------+
-| SERVICE_RTE_LIST  | The customer-facing number of the route (as text to |
-|                   | facilitate the creation of the products based on    |
-|                   | this table), i.e. the number used in timetables, at |
-|                   | bus stops, in printed materials, and on buses'      |
-|                   | headsigns. This number may be different than        |
-|                   | BLOCK_RTE_NUM. All routes have a service number,    |
-|                   | even routes that are not known as numbered routes   |
-|                   | to customers. E.g. A line = route 671.              |
-+-------------------+-----------------------------------------------------+
-| TR                | Cardinal direction of trip                          |
-| IP_COMPASS_DIR_CD |                                                     |
-+-------------------+-----------------------------------------------------+
-| KEY_BLOCK_NUM     | Unique identifier of vehicle assignment of trip,    |
-|                   | calculated as follows:  (SCHED_DAY_TYPE_CODED_NUM   |
-|                   | \*100000) + (BLOCK_RTE_NUM \* 100) + BLOCK_RUN_NUM  |
-+-------------------+-----------------------------------------------------+
-| STOP_SEQUENCE_NUM | Numbered sequence of all bus stops, merging all     |
-|                   | patterns into a single sequence to provide a proper |
-|                   | sequence of stops, regardless of which pattern a    |
-|                   | particular trip follows.                            |
-+-------------------+-----------------------------------------------------+
-| **STOP_ID**       | Unique identifier for each bus stop                 |
-+-------------------+-----------------------------------------------------+
-| STOP_NM           | The name of the stop                                |
-+-------------------+-----------------------------------------------------+
-| SCHED_ARRIVAL     | The time the bus is scheduled to arrive at the      |
-| \                 | stop, expressed as hh:mm:ss without the colons.     |
-| _SECS_AFTER_MIDNT | Valid only for timestops.                           |
-+-------------------+-----------------------------------------------------+
-| FULL_DATE         | The date on which the trip was observed in          |
-|                   | MM/DD/YYYY format                                   |
-+-------------------+-----------------------------------------------------+
-| ACTUAL_ARRIVAL    | The time the bus was measured to have arrived at    |
-| \                 | the stop, expressed as hh:mm:ss without the colons  |
-| _SECS_AFTER_MIDNT |                                                     |
-+-------------------+-----------------------------------------------------+
-| ACTUAL_DEPARTURE  | The time the bus was measured to have left the      |
-| \                 | stop, expressed as hh:mm:ss without the colons      |
-| _SECS_AFTER_MIDNT |                                                     |
-+-------------------+-----------------------------------------------------+
-| PSNGR_BOARDINGS   | The number of passengers that boarded the bus       |
-+-------------------+-----------------------------------------------------+
-| PSNGR_ALIGHTINGS  | The number of passengers that departed the bus      |
-+-------------------+-----------------------------------------------------+
-| **TRIP_ID**       | Trip id                                             |
-+-------------------+-----------------------------------------------------+
-| DEP_PSNGR_LOAD    | Number of passengers on the coach                   |
-+-------------------+-----------------------------------------------------+
-| Column Name       | Description                                         |
-+-------------------+-----------------------------------------------------+
++------------------+---------------------------------------------------+
+| **Column Name**  | **Description**                                   |
++------------------+---------------------------------------------------+
+| OPERATION_DATE   | The date on which the trip was observed in        |
+|                  | YYYY-MM-DD format                                 |
++------------------+---------------------------------------------------+
+| BOOKING_ID       | Shorthand code for the service change in a format |
+|                  | expected by the Hastus NetPlan and ATP modules    |
++------------------+---------------------------------------------------+
+| SCHED_D          | 0 = weekday, 1 = Saturday, 2 = Sunday             |
+| A                |                                                   |
+| Y_TYPE_CODED_NUM |                                                   |
++------------------+---------------------------------------------------+
+| SERVICE_RTE_LIST | The customer-facing number of the route (as text  |
+|                  | to facilitate the creation of the products based  |
+|                  | on this table), i.e. the number used in           |
+|                  | timetables, at bus stops, in printed materials,   |
+|                  | and on buses' headsigns. This number may be       |
+|                  | different than BLOCK_RTE_NUM. All routes have a   |
+|                  | service number, even routes that are not known as |
+|                  | numbered routes to customers. E.g. A line = route |
+|                  | 671.                                              |
++------------------+---------------------------------------------------+
+| TR               | Cardinal direction of trip                        |
+| I                |                                                   |
+| P_COMPASS_DIR_CD |                                                   |
++------------------+---------------------------------------------------+
+| KEY_BLOCK_NUM    | Unique identifier of vehicle assignment of trip,  |
+|                  | calculated as follows:  (SCHED_DAY_TYPE_CODED_NUM |
+|                  | \*100000) + (BLOCK_RTE_NUM \* 100) +              |
+|                  | BLOCK_RUN_NUM                                     |
++------------------+---------------------------------------------------+
+| S                | Numbered sequence of all bus stops, merging all   |
+| TOP_SEQUENCE_NUM | patterns into a single sequence to provide a      |
+|                  | proper sequence of stops, regardless of which     |
+|                  | pattern a particular trip follows.                |
++------------------+---------------------------------------------------+
+| **STOP_ID**      | Unique identifier for each bus stop               |
++------------------+---------------------------------------------------+
+| STOP_NM          | The name of the stop                              |
++------------------+---------------------------------------------------+
+| SCHED_ARRIVAL\   | The time the bus is scheduled to arrive at the    |
+| \_               | stop, expressed as hh:mm:ss without the colons.   |
+| SECS_AFTER_MIDNT | Valid only for timestops.                         |
++------------------+---------------------------------------------------+
+| FULL_DATE        | The date on which the trip was observed in        |
+|                  | MM/DD/YYYY format                                 |
++------------------+---------------------------------------------------+
+| ACTUAL_ARRIVAL\  | The time the bus was measured to have arrived at  |
+| \_               | the stop, expressed as hh:mm:ss without the       |
+| SECS_AFTER_MIDNT | colons                                            |
++------------------+---------------------------------------------------+
+| A                | The time the bus was measured to have left the    |
+| CTUAL_DEPARTURE\ | stop, expressed as hh:mm:ss without the colons    |
+| \_               |                                                   |
+| SECS_AFTER_MIDNT |                                                   |
++------------------+---------------------------------------------------+
+| PSNGR_BOARDINGS  | The number of passengers that boarded the bus     |
++------------------+---------------------------------------------------+
+| PSNGR_ALIGHTINGS | The number of passengers that departed the bus    |
++------------------+---------------------------------------------------+
+| **TRIP_ID**      | Trip id                                           |
++------------------+---------------------------------------------------+
+| DEP_PSNGR_LOAD   | Number of passengers on the coach                 |
++------------------+---------------------------------------------------+
+| Column Name      | Description                                       |
++------------------+---------------------------------------------------+
 
 : Code book for apc_stops
+
+## MISC notes for Q1 data
+
+-   The information on routes that did not have service changes on
+    9/19/20 can be found in the "alltrips" document.
+
+-   Transferring hub stations would have a upward bias for total
+    stop-interaction counts, which I (Meng) assume can be identified in
+    alltrips document as well.
+
+-   We can discuss the need to subgroup the dates by weekday/weedend
+    etc. There is already a column for this in the apc_stops data
+
++------------------+---------------------------------------------------+
+| SCHED_D          | 0 = weekday, 1 = Saturday, 2 = Sunday             |
+| A                |                                                   |
+| Y_TYPE_CODED_NUM |                                                   |
++==================+===================================================+
++------------------+---------------------------------------------------+
+
+-   KCM confirms there is no way to see when/where a passenger gets on
+    and gets off the Metro
+
+-   No data for "Sound Transit", a competitor for KCM, which also
+    suspended fare on March 21, 2020, but reinstated fare earlier on
+    June 1, 2020.
+
+## Explore and analysis - Q2 data
+
+`card_id` is the shared column, we can merge three data sets first by
+this column
+
+Re-load counts could be derived from parsing the first several digits (I
+have seen 3 digits, 5 digits..."568-251514"), summarize counts. And we
+can group by time frames and derive loading counts too.
+
+```{r}
+asdf <- lift_registry %>% 
+  filter(card_id == "94262-1")
+```
+
+## Model specification plan for Q2
+
+**Question 2:**
+
+Indicator for if people reloaded after 6 months
+
+`long_term_loading ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+Indicator for if they have -2 or -3 = renrollment
+
+`reenrollment_in_orca ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+## Instructions and codebook for Q2
+
+### lift registry data 
+
++---------------+-----------------------------+-----------------------+
+| Variable      | Values                      | Description           |
+| ID            |                             |                       |
++---------------+-----------------------------+-----------------------+
+| Age           | Age at time of enrollment   | Age                   |
+|               | (0-101)                     |                       |
++---------------+-----------------------------+-----------------------+
+| RaceDesc      | American Indian or Alasa    | Race/Ethnicity        |
+|               | Native,                     |                       |
+|               | Asian, Black or African     |                       |
+|               | American, Hispanic or       |                       |
+|               | Latino, Multi-Racial,       |                       |
+|               | Native                      |                       |
+|               | Hawaiian or Other Pacific   |                       |
+|               | Islander, Not Specified,    |                       |
+|               | Other, White, NA            |                       |
++---------------+-----------------------------+-----------------------+
+| L             | Amharic, Arabic, Cambodian, | Primary language      |
+| anguageSpoken | Chinese, Dari, English,     | spoken                |
+|               | Farsi, French, Hindi,       |                       |
+|               | Japanese, Korean, Laotian,  |                       |
+|               | Not                         |                       |
+|               | Specified, Oromo, Other,    |                       |
+|               | Punjabi, Russian, Samoan,   |                       |
+|               | Somali, Spanish, Tagalog,   |                       |
+|               | Tigrinya, Ukrainian,        |                       |
+|               | Vietnamese, NA              |                       |
++---------------+-----------------------------+-----------------------+
+| Expiration    | 4/16/2017 - 9/30/2025 (one  | Date card expires     |
+|               | 534984 observation?)        |                       |
++---------------+-----------------------------+-----------------------+
+| DateIssued    | 3/1/2017 - 3/17/2022        | Date card was issued\ |
+|               |                             | shows date of         |
+|               |                             | re-enrollment         |
++---------------+-----------------------------+-----------------------+
+| Card          | Various card issuing agency | Agency where card was |
+| IssuingAgency | (details in Excel file)     | issued                |
++---------------+-----------------------------+-----------------------+
+| FIPS          | 530079602001-530619400023,  | Census block group    |
+|               | nan                         | FIPS code of home     |
+|               |                             | address (11-digit)    |
++---------------+-----------------------------+-----------------------+
+| Initial Load  | 10, 15, 20, 30, 50, 70,     | Product/value         |
+|               | Misc.                       | initially loaded onto |
+|               | Pass, Monthly Pass,         | card (at no cost to   |
+|               | Passport, Subsidized Annual | user)                 |
+|               | Pass, NA                    |                       |
++---------------+-----------------------------+-----------------------+
+|               |      0                      | Unloaded              |
++---------------+-----------------------------+-----------------------+
+|               |      10                     | \$10 stored value     |
++---------------+-----------------------------+-----------------------+
+|               |      15                     | \$15 stored value     |
++---------------+-----------------------------+-----------------------+
+|               |      20                     | \$20 stored value     |
++---------------+-----------------------------+-----------------------+
+|               |      30                     | \$30 stored value     |
++---------------+-----------------------------+-----------------------+
+|               |      50                     | \$50 stored value     |
++---------------+-----------------------------+-----------------------+
+|               |      Phase1 Passport        | Unlimited ride pass   |
+|               |                             | good from roughly     |
+|               |                             | Mar/Apr/May/June      |
+|               |                             | through Jul/Aug       |
+|               |                             | 2019                  |
++---------------+-----------------------------+-----------------------+
+|               |      Phase2 Passport        | Unlimited ride pass   |
+|               |                             | good from roughly     |
+|               |                             | De                    |
+|               |                             | c19/Jan20/Feb20/Mar20 |
+|               |                             | through Mar           |
+|               |                             | 2020                  |
++---------------+-----------------------------+-----------------------+
+|               |      Subsidized Annual Pass | Unlimited ride pass   |
+|               |                             | good for one year     |
+|               |                             | from date of issue    |
++---------------+-----------------------------+-----------------------+
+| Study Card    | Phase 1 Treatment, Phase 2  | Shows subsidized      |
+|               | Treatment, NA               | annual pass           |
++---------------+-----------------------------+-----------------------+
+| duplicate     | TRUE/FALSE (mostly false?)  |                       |
++---------------+-----------------------------+-----------------------+
+| card_id       | 100000-1 \~ 99998-3         | Anonymized card ID\   |
+|               | (re-enrollment using a dash | - number before the   |
+|               | after the card number)      | hyphen indicates      |
+|               |                             | user\                 |
+|               |                             | - number after hyphen |
+|               |                             | indicates card number |
+|               |                             | for users who have    |
+|               |                             | registered multiple   |
+|               |                             | cards                 |
++---------------+-----------------------------+-----------------------+
+| Variable      | Values                      | Description           |
+| ID            |                             |                       |
++---------------+-----------------------------+-----------------------+
+
+### lift boarding data
+
++-------------------+-----------------+--------------------------------+
+| Variable          | Values          | Description                    |
+| ID                |                 |                                |
++-------------------+-----------------+--------------------------------+
+| week              | 11/             | Date on which week ends        |
+|                   | 7/2021-3/6/2022 |                                |
++-------------------+-----------------+--------------------------------+
+| Community Transit | 1\~35, NA       | Boardings made on Community    |
+|                   |                 | Transit                        |
++-------------------+-----------------+--------------------------------+
+| Everett Transit   | 1-46, NA        | Boardings made on Everett      |
+|                   |                 | Transit                        |
++-------------------+-----------------+--------------------------------+
+| King County Metro | 1-132, NA       | Boardings made on King County  |
+|                   |                 | Metro                          |
++-------------------+-----------------+--------------------------------+
+| Kitsap Transit    | 1-23, NA        | Boardings made on Kitsap       |
+|                   |                 | Transit                        |
++-------------------+-----------------+--------------------------------+
+| Pierce Transit    | 1-40, NA        | Boardings made on Pierce       |
+|                   |                 | Transit                        |
++-------------------+-----------------+--------------------------------+
+| Sound Transit     | 1-77, NA        | Boardings made on Sound        |
+|                   |                 | Transit                        |
++-------------------+-----------------+--------------------------------+
+| card_id           | 100042-2 \~     | Anonymized card id; number     |
+|                   | 999             | before the hyphen indicates    |
+|                   | 98-3(duplicates | user, number after hyphen      |
+|                   | by card ID if   | indicates card number          |
+|                   | ridden multiple | for users who have registered  |
+|                   | weeks)          | multiple cards                 |
++-------------------+-----------------+--------------------------------+
+| Variable ID       | Values          | Description                    |
++-------------------+-----------------+--------------------------------+
+
+### lift sales data
+
++----------------+--------------------------+--------------------------+
+| Variable       | Values                   | Description              |
+| ID             |                          |                          |
++----------------+--------------------------+--------------------------+
+| week           | 3/5/2017-3/6/2022        | Date on which week ends\ |
+|                |                          | each enrollee's value    |
+|                |                          | loading amount or        |
+|                |                          | loading per week         |
++----------------+--------------------------+--------------------------+
+| Txn Desc       | Day Pass, Misc. Pass,    | Type of product          |
+|                | Monthly                  | purchased                |
+|                | Pass, Org. Day Pass,     |                          |
+|                | Org. Misc. Pass, Org.    |                          |
+|                | Monthly Pass, Org.       |                          |
+|                | Purse, Purse             |                          |
++----------------+--------------------------+--------------------------+
+|                |      Purse               | "E-purse" stored value   |
++----------------+--------------------------+--------------------------+
+|                |      Pass                | Monthly pass product     |
++----------------+--------------------------+--------------------------+
+| loadings       | 1-12                     | Number of pass purchases |
+|                |                          | or                       |
+|                |                          | stored value adds\       |
+|                |                          | each enrollee's value    |
+|                |                          | loading frequency        |
++----------------+--------------------------+--------------------------+
+| Amount         | 0.01-459 (no set         | \$ value of pass         |
+|                | increment)               | purschases or            |
+|                |                          | stored value adds \      |
+|                |                          | each enrollee's value    |
+|                |                          | loading amount           |
++----------------+--------------------------+--------------------------+
+| card_id        | 100000-1 - 99998-3       |                          |
+|                | (duplicates by card ID   |                          |
+|                | if ridden                |                          |
+|                | multiple weeks)          |                          |
++----------------+--------------------------+--------------------------+
+
+## MISC notes for Q2
+
+The indicators for the RCI treatment and control groups are...
