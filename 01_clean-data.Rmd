@@ -1,0 +1,226 @@
+---
+title: "Q2 data cleaning"
+editor_options: 
+  chunk_output_type: inline
+output: 
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
+                      fig.width = 6, fig.height = (6 * 0.618),
+                      out.width = "80%", collapse = TRUE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
+options(digits = 3, width = 90)
+```
+
+# Sub-questions
+
+## Q2-A: Effect of different levels of incentives on longer-term loading of value and passes 
+
+Indicator for if people reloaded after 6 months
+
+`long_term_loading ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+## Q2-B: Effect of different levels of incentives on re-enrollment in ORCA LIFT
+
+Indicator for if they have -2+ = reenrollment
+
+`reenrollment_in_orca ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+## Q2-C: Effects of subsidized passes through RCTs on these two outcome variables
+
+`long_term_loading ~ subsidized_passes`
+
+`reenrollment_in_orca ~ subsidized_passes`
+
+(incentives = no value, \$10, \$15, \$20, \$30, \$50, "Passport")
+
+## General TODOs
+
+- How to deal with time? Week fixed/random effects? MSM/panel data?
+- `expand_grid()` to get every possible combination of id and week, then do an MSM or at least `outcome ~ treatment + year_week + (1 + treatment + year_week | person_id)`?
+- Create confounding variable that indicates past usage? Like stuff getting issued in 2017?
+
+
+# Data cleaning for Q2
+
+`GEOID` in `LIFT_registry.csv` is 12 digits, so it's for the [Census block group](https://www.census.gov/programs-surveys/geography/guidance/geo-identifiers.html) (2 + 3 + 6 + 1, for state + county + tract + block group)
+
+```{r load-packages-data, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(lubridate)
+library(here)
+
+lift_boardings1_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                                     "Question 2_ Fare Subsidies", "LIFT_boardings.csv"))
+
+lift_boardings2_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                                     "Question 2_ Fare Subsidies", 
+                                     "LIFT_boardings_2021-11-01_to_2022-03-06.csv"))
+
+lift_sales_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                                "Question 2_ Fare Subsidies", "LIFT_sales_2022-04-01.csv"))
+
+lift_registry_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+                                   "Question 2_ Fare Subsidies", "LIFT_registry_2022-04-01.csv"))
+```
+
+## Rider data
+
+```{r clean-riders-data}
+# TODO: Remove unneeded columns?
+# TODO: Make reenrollment indicator - easy, except for time
+# TODO: Exclude instances where expiration date is before the issued date
+riders <- lift_registry_raw |> 
+  # Split id column to get enrollment count
+  mutate(card_id_orig = card_id) |> 
+  separate(card_id, into = c("id", "times"), sep = "-") |> 
+  # Clean up column types
+  mutate(across(c(id, times), as.integer)) |> 
+  mutate(FIPS = as.character(FIPS)) |> 
+  # This date is a typo
+  mutate(Expiration = ifelse(Expiration == "00534984", NA, Expiration)) |> 
+  # Make the expiration date an actual date
+  mutate(Expiration = mdy(Expiration)) |>
+  # Get rid of extra columns
+  select(-duplicate) |> 
+  # Sort
+  arrange(id) |> 
+  group_by(id) |> 
+  mutate(reenroll = any(times > 1)) |> 
+  ungroup()
+riders
+```
+
+## Sales data
+
+```{r clean-sales-data}
+# TODO: Purse vs. Pass
+# TODO: How to handle multiple loadings
+# When we are measuring long term “use” in the fare subsidies experiment, is there a difference between the information that the “loadings” vs. “amount” per week gives us? (i.e. if individual A loaded 5x and individual B loaded 1x in a week, both with value of $50, should individual A be counted as having “higher” long term use than individual B?) Trying to see if the "loadings" column gives us any extra information.
+sales <- lift_sales_raw |> 
+  mutate(card_id_orig = card_id) |> 
+  separate(card_id, into = c("id", "times"), sep = "-") |> 
+  mutate(across(c(id, times), as.integer)) |> 
+  mutate(week_num = epiweek(week),
+         year_week = sprintf("%04d/%02d", year(week), epiweek(week)))
+sales
+```
+
+## Boardings data
+
+```{r clean-boardings-data}
+# TODO: Only count King County Metro boardings?
+boardings <- lift_boardings1_raw |>
+  bind_rows(lift_boardings2_raw) |> 
+  mutate(card_id_orig = card_id) |> 
+  separate(card_id, into = c("id", "times"), sep = "-") |> 
+  mutate(across(c(id, times), as.integer)) |> 
+  mutate(week_num = epiweek(week),
+         year_week = sprintf("%04d/%02d", year(week), epiweek(week))) |> 
+  mutate(total_boardings = 
+           `Community Transit` + `Everett Transit` + `King County Metro` + 
+           `Kitsap Transit` + `Pierce Transit` + `Sound Transit`)
+boardings
+```
+
+## Census data
+
+```{r get-clean-census, cache=TRUE, message=FALSE, warning=FALSE, results="hide"}
+# See a list of variable names
+# Also available at https://api.census.gov/data/2020/acs/acs5/variables.html
+# acs_possible_vars <- load_variables(2020, "acs5", cache = TRUE)
+
+acs_vars <- tribble(
+  ~name,        ~var_name,       ~description,
+  "B01003_001", "bg_population", "Total population",
+  "B02001_001", "bg_race",       "Race",
+  "B02001_002", "bg_race_white", "Race: White alone",
+  "B19013_001", "bg_income",     "Median household income"
+)
+
+# Create a named vector to pass to get_acs()
+vars_to_get <- acs_vars$name |> 
+  set_names(acs_vars$var_name)
+
+# Get 2019 ACS data
+# 2020 would be neat, but ≈20% of it is missing, ugh
+# 2020 decennial would be neat too, but it's a huge mess
+acs_raw <- get_acs(geography = "block group", 
+                   variables = vars_to_get,
+                   state = 53, year = 2019, survey = "acs5")
+
+# Make the data wide
+acs_wa <- acs_raw |> 
+  select(-NAME, -moe) |> 
+  pivot_wider(names_from = "variable", values_from = "estimate")
+
+# Shapefiles for WA block groups
+# Get block group boundaries
+wa_bgs <- tigris::block_groups(state = 53, cb = FALSE, year = 2019)
+```
+
+## Merge data
+
+```{r merge-data}
+# TODO: Combine summarized details from `sales` (reloading) and `boardings` (rides)
+# TODO: Merge in ACS data based on FIPS
+```
+
+```{r}
+# Join the ACS data to the rider block groups
+rider_bgs <- riders |> 
+  count(FIPS, name = "n_riders") |> 
+  left_join(acs_wa, by = c("FIPS" = "GEOID"))
+```
+
+# EDA
+
+Number of people who reenrolled:
+
+```{r}
+riders |> 
+  filter(times == 1) |> 
+  count(reenroll) |> 
+  mutate(prop = n / sum(n))
+```
+
+Plot rider count for fun
+
+```{r map-rider-count}
+# Join boundaries to observed rider block groups
+geo_rider_bgs <- rider_bgs |> 
+  left_join(select(wa_bgs, GEOID, geometry), by = c("FIPS" = "GEOID")) |> 
+  st_sf() |>   # Make the geometry column magical again
+  # Truncate the number of riders
+  mutate(n_riders_trunc = ifelse(n_riders >= 500, 500, n_riders))
+
+# Plot
+ggplot() +
+  geom_sf(data = geo_rider_bgs, aes(fill = n_riders_trunc), size = 0) +
+  scale_fill_viridis_c(option = "plasma") +
+  theme_minimal()
+```
+
+Reenrollment patterns ([see original](https://campuswire.com/c/GEE9F3E0C/feed/26))
+
+> The one year spike makes sense --- re-enrollment needs to be done at the 1 year point. The spike at 0 might be cards with data entry errors.
+
+```{r reenrollment-day-gap, warning=FALSE, fig.width=7}
+riders_who_reenroll <- riders |> 
+  filter(times > 1) |> 
+  distinct(id) |> pull(id)
+
+reenroll_timing <- riders |> 
+  filter(id %in% riders_who_reenroll) |> 
+  group_by(id) |> 
+  mutate(days_between = as.duration(interval(lag(DateIssued), DateIssued)) %/% as.duration(days(1)))
+
+ggplot(reenroll_timing, aes(x = days_between)) +
+  geom_histogram(binwidth = 7, boundary = 0) +
+  geom_vline(xintercept = 0:5 * 365)
+```
