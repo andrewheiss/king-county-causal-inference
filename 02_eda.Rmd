@@ -18,6 +18,7 @@ options(digits = 3, width = 90,
 
 ```{r load-libraries-data, warning=FALSE, message=FALSE}
 library(tidyverse)
+library(tigris)
 library(sf)
 library(lubridate)
 library(here)
@@ -26,6 +27,20 @@ riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
 riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
 wa_bgs <- readRDS(here("data", "derived_data", "washington_block-groups.rds"))
 acs_wa <- readRDS(here("data", "derived_data", "washington_acs.rds"))
+```
+
+
+```{r get-tigris-shapefiles, warning=FALSE, message=FALSE, cache=TRUE, results="hide"}
+# Seattle-area counties
+seattle_counties <- c("King", "Snohomish", "Pierce", "Kitsap", "Chelan", "Kittitas")
+
+wa_counties <- counties(state = 53, year = 2019)
+
+seattle_water <- tibble(county = seattle_counties) %>% 
+  # Get each county individually
+  mutate(water = map(county, ~area_water("WA", .x, year = 2019))) %>% 
+  unnest(water) %>% 
+  st_sf()  # Make the geometry column magical again
 ```
 
 
@@ -40,7 +55,14 @@ riders_final %>%
 
 Plot rider count for fun
 
-```{r map-rider-count}
+```{r map-rider-count, fig.width=9, fig.height=6.5, fig.asp=NULL}
+# Filter the tigris data
+county_shapes <- wa_counties %>% 
+  filter(NAME %in% seattle_counties)
+
+water_plot <- seattle_water %>% 
+  filter(AWATER >= 1000000)
+
 # Join the ACS data to the rider block groups
 rider_bgs <- riders_final %>% 
   count(FIPS, name = "n_riders") %>% 
@@ -55,10 +77,37 @@ geo_rider_bgs <- rider_bgs %>%
 
 # Plot
 ggplot() +
+  geom_sf(data = county_shapes, fill = "grey90") +
+  geom_sf(data = water_plot, fill = "lightblue") +
   geom_sf(data = geo_rider_bgs, aes(fill = n_riders_trunc), size = 0) +
   scale_fill_viridis_c(option = "plasma") +
-  theme_minimal()
+  labs(title = "Greater Seattle Area", fill = "Number of riders") +
+  theme_void() +
+  theme(legend.position = "bottom")
 ```
+
+King County only
+
+```{r}
+kc_shape <- county_shapes %>% 
+  filter(NAME == "King")
+
+kc_water <- water_plot %>% 
+  filter(county == "King")
+
+kc_geo_rider <- geo_rider_bgs %>% 
+  filter(str_starts(FIPS, "53033"))
+
+ggplot() +
+  geom_sf(data = kc_shape, fill = "grey90") +
+  geom_sf(data = kc_water, fill = "lightblue") +
+  geom_sf(data = kc_geo_rider, aes(fill = n_riders_trunc), size = 0) +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(title = "King County", fill = "Number of riders") +
+  theme_void() +
+  theme(legend.position = "bottom")
+```
+
 
 Reenrollment patterns ([see original](https://campuswire.com/c/GEE9F3E0C/feed/26))
 
