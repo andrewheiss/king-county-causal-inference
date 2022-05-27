@@ -1,0 +1,80 @@
+---
+title: "Exploratory data analysis"
+editor_options: 
+  chunk_output_type: inline
+output: 
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
+                      fig.width = 6, fig.height = (6 * 0.618),
+                      out.width = "80%", collapse = TRUE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
+options(digits = 3, width = 90,
+        dplyr.summarise.inform = FALSE)
+```
+
+```{r load-libraries-data, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(here)
+
+riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
+riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
+wa_bgs <- readRDS(here("data", "derived_data", "washington_block-groups.rds"))
+acs_wa <- readRDS(here("data", "derived_data", "washington_acs.rds"))
+```
+
+
+Number of people who reenrolled:
+
+```{r}
+riders_final %>% 
+  filter(times == 1) %>% 
+  count(ever_reenroll) %>% 
+  mutate(prop = n / sum(n))
+```
+
+Plot rider count for fun
+
+```{r map-rider-count}
+# Join the ACS data to the rider block groups
+rider_bgs <- riders_final %>% 
+  count(FIPS, name = "n_riders") %>% 
+  left_join(acs_wa, by = c("FIPS" = "GEOID"))
+
+# Join boundaries to observed rider block groups
+geo_rider_bgs <- rider_bgs %>% 
+  left_join(select(wa_bgs, GEOID, geometry), by = c("FIPS" = "GEOID")) %>% 
+  st_sf() %>%   # Make the geometry column magical again
+  # Truncate the number of riders
+  mutate(n_riders_trunc = ifelse(n_riders >= 500, 500, n_riders))
+
+# Plot
+ggplot() +
+  geom_sf(data = geo_rider_bgs, aes(fill = n_riders_trunc), size = 0) +
+  scale_fill_viridis_c(option = "plasma") +
+  theme_minimal()
+```
+
+Reenrollment patterns ([see original](https://campuswire.com/c/GEE9F3E0C/feed/26))
+
+> The one year spike makes sense --- re-enrollment needs to be done at the 1 year point. The spike at 0 might be cards with data entry errors.
+
+```{r reenrollment-day-gap, warning=FALSE, fig.width=7}
+riders_who_reenroll <- riders_final %>% 
+  filter(times > 1) %>% 
+  distinct(id) %>% pull(id)
+
+reenroll_timing <- riders_final %>% 
+  filter(id %in% riders_who_reenroll) %>% 
+  group_by(id) %>% 
+  mutate(days_between = as.duration(interval(lag(DateIssued), DateIssued)) %/% as.duration(days(1)))
+
+ggplot(reenroll_timing, aes(x = days_between)) +
+  geom_histogram(binwidth = 7, boundary = 0) +
+  geom_vline(xintercept = 0:5 * 365)
+```
