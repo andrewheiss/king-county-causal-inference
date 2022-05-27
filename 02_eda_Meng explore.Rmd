@@ -1,0 +1,126 @@
+---
+title: "Exploratory data analysis"
+editor_options: 
+  chunk_output_type: inline
+output: 
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
+                      fig.width = 6, fig.height = (6 * 0.618),
+                      out.width = "80%", collapse = TRUE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
+options(digits = 3, width = 90,
+        dplyr.summarise.inform = FALSE)
+```
+
+```{r load-libraries-data, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(here)
+library(broom)
+
+riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
+riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
+wa_bgs <- readRDS(here("data", "derived_data", "washington_block-groups.rds"))
+acs_wa <- readRDS(here("data", "derived_data", "washington_acs.rds"))
+```
+
+
+Number of people who reenrolled:
+
+```{r}
+riders_final %>% 
+  filter(times == 1) %>% 
+  count(ever_reenroll) %>% 
+  mutate(prop = n / sum(n))
+```
+
+
+```{r distribution of incentives 2019 and all}
+incentives_2019 <- table(riders_final_2019$incentive_cat) %>% 
+  as.data.frame()
+
+incentives_all <- table(riders_final$incentive_cat) %>% 
+  as.data.frame()
+
+incentives_compare<- incentives_all %>% 
+  left_join(incentives_2019, by = "Var1")  %>%
+  rename(incentive_cat = Var1,
+         count_all = Freq.x,
+         count_2019 = Freq.y) %>%
+  mutate(diff = count_all - count_2019)
+
+incentives_compare%>% 
+  knitr::kable()
+```
+
+Explore subsidized annual pass -- SAP 
+
+SAP programs expire after one year, so has higher chances of reenrollment
+
+```{r explore SAP}
+rider_with_SAP <- riders_final %>% 
+  mutate(SAP_binary = ifelse(incentive_cat == "Subsidized Annual Pass", TRUE, FALSE),
+         valid_duration = as.numeric(Expiration - DateIssued))
+
+rider_with_SAP_2019 <- riders_final_2019 %>% 
+  mutate(SAP_binary = ifelse(incentive_cat == "Subsidized Annual Pass", TRUE, FALSE),
+         valid_duration = as.numeric(Expiration - DateIssued))
+
+# difference of mean during for SAP and normal ORCA lift
+duration_by_SAP <- lm(valid_duration ~ SAP_binary, data = rider_with_SAP)
+tidy(duration_by_SAP)
+```
+```{r duration hist, fig.height=6, fig.width=8}
+# histogram just to explore the valid duration
+ggplot(rider_with_SAP_2019, aes(x = valid_duration, fill = reenrolled)) +
+  geom_histogram(binwidth = 30, color = "white", boundary = 0) +
+    facet_wrap(vars(SAP_binary), ncol = 1)
+```
+
+
+```{r explore regression SAP}
+# test logit regression on ever_enroll
+model_SAP_reenroll <- glm(ever_reenroll ~ SAP_binary + Age + RaceDesc + bg_income, 
+                          data = rider_with_SAP, 
+                          family = "binomial")
+summary(model_SAP_reenroll)
+```
+
+
+Find out how the race distributes and which is the reference group. 
+
+
+```{r distribution race}
+table(riders_final$RaceDesc) %>% 
+  knitr::kable()
+```
+
+
+```{r model incentive_cat-ever-reenroll}
+# this is the pooled model ingoring the incentive timing
+model_incentive_reenroll<- glm(ever_reenroll ~ incentive_cat + Age + RaceDesc + bg_income, 
+                          data = rider_with_SAP, 
+                          family = "binomial")
+summary(model_incentive_reenroll)
+```
+
+```{r model incentive_cat-reenrolled}
+# this is the model with the incentive timing order
+model_incentive_prev_reenroll<- glm(reenrolled ~ incentive_cat_prev + Age + RaceDesc + bg_income, 
+                          data = rider_with_SAP, 
+                          family = "binomial")
+summary(model_incentive_prev_reenroll)
+```
+
+```{r model incentive_cat-money spent}
+model_incentive_money<- lm(total_amount_after_six ~ incentive_cat + Age + RaceDesc + bg_income, 
+                          data = rider_with_SAP)
+summary(model_incentive_money)
+```
+
+
