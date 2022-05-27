@@ -11,6 +11,7 @@
 **/*_files/*
 **/*_cache/*
 **/model_cache*
+**/*.html
 
 # Miscellaneous
 *.~lock.*
