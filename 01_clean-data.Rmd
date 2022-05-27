@@ -1,5 +1,5 @@
 ---
-title: "Q2 data cleaning"
+title: "Data cleaning"
 editor_options: 
   chunk_output_type: inline
 output: 
@@ -12,49 +12,113 @@ knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
                       fig.width = 6, fig.height = (6 * 0.618),
                       out.width = "80%", collapse = TRUE,
                       dev = "png", dev.args = list(type = "cairo-png"))
-options(digits = 3, width = 90)
+options(digits = 3, width = 90,
+        dplyr.summarise.inform = FALSE)
 ```
 
-# Sub-questions
-
-## Q2-A: Effect of different levels of incentives on longer-term loading of value and passes 
-
-Indicator for if people reloaded after 6 months
-
-`long_term_loading ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
-
-## Q2-B: Effect of different levels of incentives on re-enrollment in ORCA LIFT
-
-Indicator for if they have -2+ = reenrollment
-
-`reenrollment_in_orca ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
-
-## Q2-C: Effects of subsidized passes through RCTs on these two outcome variables
-
-`long_term_loading ~ subsidized_passes`
-
-`reenrollment_in_orca ~ subsidized_passes`
-
-(incentives = no value, \$10, \$15, \$20, \$30, \$50, "Passport")
-
-## General TODOs
-
-- How to deal with time? Week fixed/random effects? MSM/panel data?
-- `expand_grid()` to get every possible combination of id and week, then do an MSM or at least `outcome ~ treatment + year_week + (1 + treatment + year_week | person_id)`?
-- Create confounding variable that indicates past usage? Like stuff getting issued in 2017?
-
-
-# Data cleaning for Q2
-
-`GEOID` in `LIFT_registry.csv` is 12 digits, so it's for the [Census block group](https://www.census.gov/programs-surveys/geography/guidance/geo-identifiers.html) (2 + 3 + 6 + 1, for state + county + tract + block group)
-
-```{r load-packages-data, warning=FALSE, message=FALSE}
+```{r load-packages, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(tidycensus)
 library(sf)
 library(lubridate)
+# library(tsibble)
 library(here)
+```
 
+# Research questions and variables
+
+## Q2
+
+### Q2-A: Effect of different levels of incentives on longer-term loading of value and passes 
+
+General model:
+
+- `long_term_loading ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+Outcomes: 
+
+- `use_after_six`: Binary indicator for whether they reloaded the card 6+ months after card is issued
+- `total_amount_after_six`: Amount of money refilled 6+ months after card is issued
+- `total_loadings_after_six`: Count of refills 6+ months after card is issued
+
+Treatment: 
+
+- `incentive_cat`: Categorical variable showing the kind of incentive each person was given with the card, if any. Possible values are 0, 10, 15, 20, 30, 50, 70, Misc. Pass, Monthly Pass, Passport, and Subsidized Annual Pass; the values are ordered based on their intensity
+
+
+### Q2-B: Effect of different levels of incentives on re-enrollment in ORCA LIFT
+
+General model:
+
+- `reenrollment_in_orca ~ different_incentives_categorical + age + race + language + issuing_office + home_address_FIPS?`
+
+Outcomes: 
+
+- `ever_reenroll`: Binary indicator for whether the person ever reenrolled (every row for that person is all TRUE or all FALSE)
+- `reenrolled`: Binary indicator for whether current card issuing is a reenrollment (TRUE when the suffix for the card ID is greater than 1)
+
+Treatment: 
+
+- Same as Q2-A
+
+
+### Q2-C: Effects of subsidized passes through RCTs on these two outcome variables
+
+General models: 
+
+- `long_term_loading ~ subsidized_passes + other_stuff`
+- `reenrollment_in_orca ~ subsidized_passes + other_stuff`
+
+Outcomes: 
+
+- Same as Q2-A and Q2-B, and maybe...
+- `reenroll_after_study`: Binary indicator for whether the person reenrolled speciifcally after being assigned to one of the pseduo RCT treatment groups and receiving a passport previously
+
+Treatment:
+
+- Same as Q2-A and Q2-B, and maybe...
+- `incentive_passport_binary`: Binary indicator for whether the person was in Phase 1 or Phase 2 of the pseduo RCT passport program
+
+
+### Controls
+
+Other details related to ridership and purchasing, like:
+
+- `total_amount_before_six`
+- `total_loadings_before_six`
+- `enrolled_previously`
+- `boardings_king_county_before_six`
+- `boardings_king_county_after_six`
+- `boardings_sound_transit_before_six`
+- `boardings_sound_transit_after_six`
+
+Details included in the rider registry:
+
+- `Age`
+- `RaceDesc`
+- `LanguageSpoken`
+- `CardIssuingAgency`
+
+ACS 2019 block-group-level data for each rider's home address:
+
+- `bg_population`: Block-group population
+- `bg_race`: Block-group denominator for race
+- `bg_race_white`: Count of white residents
+- `bg_income`: Median income in block-group
+- And many others TODO
+
+
+# Data cleaning for Q1
+
+TODO
+
+
+# Data cleaning for Q2
+
+Note: `GEOID` in `LIFT_registry.csv` is 12 digits, so it's for the [Census block group](https://www.census.gov/programs-surveys/geography/guidance/geo-identifiers.html) (`2 + 3 + 6 + 1`, for `state + county + tract + block group`)
+
+
+```{r load-q2-data, warning=FALSE, message=FALSE}
 lift_boardings1_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
                                      "Question 2_ Fare Subsidies", "LIFT_boardings.csv"))
 
@@ -72,59 +136,74 @@ lift_registry_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_count
 ## Rider data
 
 ```{r clean-riders-data}
-# TODO: Remove unneeded columns?
-# TODO: Make reenrollment indicator - easy, except for time
-# TODO: Exclude instances where expiration date is before the issued date
-riders <- lift_registry_raw |> 
+incentives <- c("0", "10", "15", "20", "30", "50", "70", "Misc. Pass", 
+                "Monthly Pass", "Passport", "Subsidized Annual Pass")
+
+riders_clean <- lift_registry_raw %>% 
   # Split id column to get enrollment count
-  mutate(card_id_orig = card_id) |> 
-  separate(card_id, into = c("id", "times"), sep = "-") |> 
+  mutate(card_id_orig = card_id) %>% 
+  separate(card_id, into = c("id", "times"), sep = "-") %>% 
   # Clean up column types
-  mutate(across(c(id, times), as.integer)) |> 
-  mutate(FIPS = as.character(FIPS)) |> 
+  mutate(across(c(id, times), as.integer)) %>% 
+  mutate(FIPS = as.character(FIPS)) %>% 
   # This date is a typo
-  mutate(Expiration = ifelse(Expiration == "00534984", NA, Expiration)) |> 
+  mutate(Expiration = ifelse(Expiration == "00534984", NA, Expiration)) %>% 
   # Make the expiration date an actual date
-  mutate(Expiration = mdy(Expiration)) |>
+  mutate(Expiration = mdy(Expiration)) %>%
+  # Exclude rows where the expiration date is before the issued date
+  filter(Expiration > DateIssued) %>% 
+  # Sometimes the same person gets enrolled twice in one day (like 2716-3)
+  # Only keep the last row of duplicate issue dates for individuals
+  group_by(id, DateIssued) %>% 
+  slice_tail() %>% 
+  # Renumber the times column
+  # group_by(id) %>% 
+  # mutate(times = 1:n()) %>% 
   # Get rid of extra columns
-  select(-duplicate) |> 
+  ungroup() %>% 
+  select(-duplicate) %>% 
   # Sort
-  arrange(id) |> 
-  group_by(id) |> 
-  mutate(reenroll = any(times > 1)) |> 
-  ungroup()
-riders
+  arrange(id, times)
+riders_clean
 ```
 
 ## Sales data
 
 ```{r clean-sales-data}
-# TODO: Purse vs. Pass
-# TODO: How to handle multiple loadings
-# When we are measuring long term “use” in the fare subsidies experiment, is there a difference between the information that the “loadings” vs. “amount” per week gives us? (i.e. if individual A loaded 5x and individual B loaded 1x in a week, both with value of $50, should individual A be counted as having “higher” long term use than individual B?) Trying to see if the "loadings" column gives us any extra information.
-sales <- lift_sales_raw |> 
-  mutate(card_id_orig = card_id) |> 
-  separate(card_id, into = c("id", "times"), sep = "-") |> 
-  mutate(across(c(id, times), as.integer)) |> 
-  mutate(week_num = epiweek(week),
-         year_week = sprintf("%04d/%02d", year(week), epiweek(week)))
+sales <- lift_sales_raw %>% 
+  group_by(week, card_id) %>% 
+  summarize(total_amount = sum(Amount),
+            total_loadings = sum(loadings)) %>% 
+  ungroup()# %>% 
+  # as_tsibble(key = card_id, index = week)
 sales
+# This takes a while
+# sales_full_panel <- sales %>% 
+#   fill_gaps(.full = TRUE) %>% 
+#   replace_na(list(total_amount = 0, total_loadings = 0)) %>% 
+#   mutate(card_id_orig = card_id) %>% 
+#   separate(card_id, into = c("id", "times"), sep = "-") %>% 
+#   as_tsibble(key = card_id_orig, index = week) %>% 
+#   mutate(across(c(id, times), as.integer)) %>% 
+#   mutate(year_week = yearweek(week, week_start = 1),
+#          year_week_nice = format(year_week, "%V/%Y"),
+#          year_month = yearmonth(week),
+#          year_month_nice = format(year_month, "%m/%Y"))
 ```
 
 ## Boardings data
 
 ```{r clean-boardings-data}
-# TODO: Only count King County Metro boardings?
-boardings <- lift_boardings1_raw |>
-  bind_rows(lift_boardings2_raw) |> 
-  mutate(card_id_orig = card_id) |> 
-  separate(card_id, into = c("id", "times"), sep = "-") |> 
-  mutate(across(c(id, times), as.integer)) |> 
-  mutate(week_num = epiweek(week),
-         year_week = sprintf("%04d/%02d", year(week), epiweek(week))) |> 
-  mutate(total_boardings = 
-           `Community Transit` + `Everett Transit` + `King County Metro` + 
-           `Kitsap Transit` + `Pierce Transit` + `Sound Transit`)
+boardings <- lift_boardings1_raw %>%
+  bind_rows(lift_boardings2_raw) %>% 
+  select(week, card_id, 
+         boardings_king_county = `King County Metro`,
+         boardings_sound_transit = `Sound Transit`) %>% 
+  mutate(card_id_orig = card_id) %>% 
+  separate(card_id, into = c("id", "times"), sep = "-") %>% 
+  mutate(across(c(id, times), as.integer)) %>% 
+  mutate(across(starts_with("boardings"), ~replace_na(., 0)))# %>% 
+  # as_tsibble(key = card_id_orig, index = week)
 boardings
 ```
 
@@ -144,7 +223,7 @@ acs_vars <- tribble(
 )
 
 # Create a named vector to pass to get_acs()
-vars_to_get <- acs_vars$name |> 
+vars_to_get <- acs_vars$name %>% 
   set_names(acs_vars$var_name)
 
 # Get 2019 ACS data
@@ -155,8 +234,8 @@ acs_raw <- get_acs(geography = "block group",
                    state = 53, year = 2019, survey = "acs5")
 
 # Make the data wide
-acs_wa <- acs_raw |> 
-  select(-NAME, -moe) |> 
+acs_wa <- acs_raw %>% 
+  select(-NAME, -moe) %>% 
   pivot_wider(names_from = "variable", values_from = "estimate")
 
 # Shapefiles for WA block groups
@@ -167,60 +246,106 @@ wa_bgs <- tigris::block_groups(state = 53, cb = FALSE, year = 2019)
 ## Merge data
 
 ```{r merge-data}
-# TODO: Combine summarized details from `sales` (reloading) and `boardings` (rides)
-# TODO: Merge in ACS data based on FIPS
+# Make a smaller dataset of just IDs and enrollment dates and then make a column
+# of enrollment dates + 180 days - we'll use this to process and collapse the
+# sales and boarding data
+rider_enrollment_dates <- riders_clean %>% 
+  select(id, times, DateIssued) %>% 
+  mutate(six_months_later = DateIssued + days(180))
+rider_enrollment_dates
+
+# Calculate how much money riders put on cards + frequency of refills in the 0-6
+# and 6+ months after getting issued a card
+sales_before_after_six_months <- sales %>%
+  # Split id column to get enrollment count
+  mutate(card_id_orig = card_id) %>% 
+  separate(card_id, into = c("id", "times"), sep = "-") %>% 
+  # Clean up column types
+  mutate(across(c(id, times), as.integer)) %>% 
+  # Bring in rider dates
+  left_join(rider_enrollment_dates, by = c("id", "times")) %>% 
+  # Get rid of rider/time combinations that don't exist
+  filter(!is.na(DateIssued)) %>% 
+  # Create indicator for whether each sale is 6+ months after the initial care issue
+  mutate(after_six = (week - days(6)) > six_months_later,
+         after_six = ifelse(after_six, "after_six", "before_six")) %>% 
+  # Get total of money loaded and frequency of loading before/after 6+ months
+  group_by(id, times, after_six) %>% 
+  summarize(across(c(total_amount, total_loadings), ~sum(.))) %>% 
+  ungroup() %>% 
+  # Make wide
+  pivot_wider(names_from = after_six, values_from = c(total_amount, total_loadings)) %>% 
+  mutate(use_after_six = total_amount_after_six > 0)
+sales_before_after_six_months
+
+boardings_before_after_six_months <- boardings %>%
+  # Bring in rider dates
+  left_join(rider_enrollment_dates, by = c("id", "times")) %>% 
+  # Get rid of rider/time combinations that don't exist
+  filter(!is.na(DateIssued)) %>% 
+  # Create indicator for whether each sale is 6+ months after the initial care issue
+  mutate(after_six = (week - days(6)) > six_months_later,
+         after_six = ifelse(after_six, "after_six", "before_six")) %>% 
+  # Get total boardings before/after 6+ months
+  group_by(id, times, after_six) %>% 
+  summarize(across(starts_with("boardings_"), ~sum(.))) %>% 
+  ungroup() %>% 
+  # Make wide
+  pivot_wider(names_from = after_six, values_from = starts_with("boardings_")) 
+boardings_before_after_six_months
+
+riders_final <- riders_clean %>% 
+  # Create treatment variables
+  # Consider NA initial loads to be 0
+  replace_na(list(`Initial Load` = "0")) %>% 
+  mutate(incentive_cat = factor(`Initial Load`, levels = incentives, ordered = TRUE),
+         incentive_passport_binary = !is.na(`Study Card`)) %>%
+  group_by(id) %>% 
+  mutate(across(c(incentive_cat, incentive_passport_binary), ~lag(.), .names = "{.col}_prev")) %>% 
+  #
+  # Create outcome variables
+  # Bring in collapsed sales data for reloading outcome
+  left_join(sales_before_after_six_months, by = c("id", "times")) %>% 
+  # Create reenrollment outcomes
+  group_by(id) %>% 
+  mutate(ever_reenroll = any(times > 1),
+         reenrolled = times > 1,
+         enrolled_previously = n() != 1,
+         reenroll_after_study = incentive_passport_binary_prev & ever_reenroll) %>% 
+  ungroup() %>% 
+  #
+  # Create controls and confounders
+  # Bring in collapsed boarding data for ride use history
+  left_join(boardings_before_after_six_months, by = c("id", "times")) %>% 
+  # Bring in census data
+  left_join(acs_wa, by = c("FIPS" = "GEOID")) %>% 
+  #
+  # Final data cleaning
+  # Replace NAs with actual data
+  mutate(across(c(starts_with("total_amount"), starts_with("total_loadings"),
+                  starts_with("boardings_")), 
+                ~replace_na(., 0))) %>% 
+  replace_na(list(use_after_six = FALSE, incentive_passport_binary_prev = FALSE,
+                  incentive_cat_prev = "0"))
+riders_final
+
+# MAYBE: Total money spent before 2019/2020 enrollment
+# MAYBE: Total refills before 2019/2020 enrollment
+
+# Only look at rows starting on March 13, 2019, since that's when the study
+# formally began
+riders_final_2019 <- riders_final %>% 
+  filter(DateIssued >= ymd("2019-03-13"))
+
+glimpse(riders_final_2019)
 ```
 
-```{r}
-# Join the ACS data to the rider block groups
-rider_bgs <- riders |> 
-  count(FIPS, name = "n_riders") |> 
-  left_join(acs_wa, by = c("FIPS" = "GEOID"))
-```
+## Save data
 
-# EDA
+```{r save-data}
+saveRDS(riders_final, here("data", "derived_data", "riders_final.rds"))
+saveRDS(riders_final_2019, here("data", "derived_data", "riders_final_2019.rds"))
 
-Number of people who reenrolled:
-
-```{r}
-riders |> 
-  filter(times == 1) |> 
-  count(reenroll) |> 
-  mutate(prop = n / sum(n))
-```
-
-Plot rider count for fun
-
-```{r map-rider-count}
-# Join boundaries to observed rider block groups
-geo_rider_bgs <- rider_bgs |> 
-  left_join(select(wa_bgs, GEOID, geometry), by = c("FIPS" = "GEOID")) |> 
-  st_sf() |>   # Make the geometry column magical again
-  # Truncate the number of riders
-  mutate(n_riders_trunc = ifelse(n_riders >= 500, 500, n_riders))
-
-# Plot
-ggplot() +
-  geom_sf(data = geo_rider_bgs, aes(fill = n_riders_trunc), size = 0) +
-  scale_fill_viridis_c(option = "plasma") +
-  theme_minimal()
-```
-
-Reenrollment patterns ([see original](https://campuswire.com/c/GEE9F3E0C/feed/26))
-
-> The one year spike makes sense --- re-enrollment needs to be done at the 1 year point. The spike at 0 might be cards with data entry errors.
-
-```{r reenrollment-day-gap, warning=FALSE, fig.width=7}
-riders_who_reenroll <- riders |> 
-  filter(times > 1) |> 
-  distinct(id) |> pull(id)
-
-reenroll_timing <- riders |> 
-  filter(id %in% riders_who_reenroll) |> 
-  group_by(id) |> 
-  mutate(days_between = as.duration(interval(lag(DateIssued), DateIssued)) %/% as.duration(days(1)))
-
-ggplot(reenroll_timing, aes(x = days_between)) +
-  geom_histogram(binwidth = 7, boundary = 0) +
-  geom_vline(xintercept = 0:5 * 365)
+saveRDS(acs_wa, here("data", "derived_data", "washington_acs.rds"))
+saveRDS(wa_bgs, here("data", "derived_data", "washington_block-groups.rds"))
 ```
