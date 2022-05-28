@@ -18,20 +18,25 @@ library(lme4)
 ## Load Q1 data
 
 ```{r load Q1 data, warning=FALSE, message=FALSE}
-alltrips <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
+# this datasets contains information of 
+trip_changes <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
                           "Question 1_ Fare Reinstatement", 
                           "alltrips_2020-09_to_2020-10.csv"))
+
+# dates of the trip change are included in the code book and was manually copied here
+trip_change_dates <- read_csv(here("data", "manual_data",
+                                   "alltrips_change_time.csv"))
+
 
 apc_routes <- read_csv(here("data", "raw_data", "raw_data_from_king_county", 
                           "Question 1_ Fare Reinstatement", 
                           "apc_detailed_09-01-2020_10-31-2020.csv"))
 
 # The stop level data is the main data set intended to be used 
-apc_stops <- fread("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv")
+apc_stops <- fread(here("data", "raw_data", "raw_data_from_king_county", 
+                          "Question 1_ Fare Reinstatement", 
+                          "stop_activity_granular_2020-09-01_2020-10-31.csv"))
 
-# a slower way to load the data. 
-# apc_stops <- read_csv("data/raw_data/raw_data_from_king_county/stop_activity_granular_2020-09-01_2020-10-31-002.csv",
-#                       guess_max = Inf)
 ```
 
 ## Load SF data
@@ -43,28 +48,84 @@ using codes in the R script)
 kcm_map <- read_sf("data/raw_data/raw_data_from_king_county/KCM_Stops_Data/kcm_stops.shp")
 ```
 
-## Load Q2 data
+## MISC notes for Q1 data
 
-```{r load Q2 data, warning=FALSE, message=FALSE}
-lift_boardings <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
-lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
-lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
+Relevant information 
+
+-   Due to considerable service changes implemented on September 19, 2020, teams may wish to restrict their
+analysis to the 9/19/2020 - 10/31/2020 time frame. Of course, teams are welcome to analyze the full time range of provided data (9/01/2020 - 10/31/2020).
+
+-   The information on routes that did not have service changes on
+    9/19/20 can be found in the "alltrips" document.
+
+-   Transferring hub stations would have a upward bias for total
+    stop-interaction counts, which I (Meng) assume can be identified in
+    alltrips document as well.
+
+-   We can discuss the need to subgroup the dates by weekday/weedend
+    etc. There is already a column for this in the apc_stops data
+
++------------------+---------------------------------------------------+
+| SCHED_D          | 0 = weekday, 1 = Saturday, 2 = Sunday             |
+| A                |                                                   |
+| Y_TYPE_CODED_NUM |                                                   |
++==================+===================================================+
++------------------+---------------------------------------------------+
+
+-   KCM confirms there is no way to see when/where a passenger gets on
+    and gets off the Metro
+
+-   No data for "Sound Transit", a competitor for KCM, which also
+    suspended fare on March 21, 2020, but reinstated fare earlier on
+    June 1, 2020.
+
+## data cleanning for Q1
+
+### data cleanning trip changes data
+
+```{r data cleaning for trip changes data}
+# only keep the service change code, trip_id and change data to merge with the stop apc data
+trip_changes_clean <- trip_changes %>% 
+  select(SERVICE_CHANGE_NUM, MINOR_CHANGE_NUM, TRIP_ID) %>% 
+  left_join(trip_change_dates, by = c("SERVICE_CHANGE_NUM","MINOR_CHANGE_NUM")) %>%
+  rename(change_start_date = `Start Date`,
+         change_end_date = `End Date`,
+         major_change_code = SERVICE_CHANGE_NUM,
+         minor_change_code = MINOR_CHANGE_NUM,
+         trip_id = TRIP_ID)
+```
+
+### data cleanning trip changes data
+I don't think there is any useful information for the trip level data. It has number of passeners boarding and alighting too. But this information can be summarized from the the stop level apc data by `group_by(trip_id)`. There seems to be more operational/administrative information for the trips but we probably won't use those. 
+
+### data cleanning stop level apc data
+
+```{r cleaning apc stops data}
+apc_stops_clean <- apc_stops %>% 
+# drop BOOKING_ID since we have a stand-alone service change data and drop other variables not to be used
+  select(date = OPERATION_DATE,
+         day_type = SCHED_DAY_TYPE_CODED_NUM,
+         route_id = SERVICE_RTE_LIST,
+         stop_id = STOP_ID,
+         boarding_num = PSNGR_BOARDINGS,
+         alighting_num = PSNGR_ALIGHTINGS,
+         trip_id = TRIP_ID) %>% 
+  mutate(day_type = case_when(day_type == 0 ~ "weekday",
+                              day_type == 1 ~ "Saturday",
+                              day_type == 2 ~ "Sunday"))
+head(apc_stops_clean)
+```
+
+## merge data
+```{r merge data}
 
 ```
 
--   Registry means enrollment in the reduced fare program, after
-    expiration date, the card become a normal adult card, normally valid
-    2 years, but annual pass's registery is good for one year (details
-    in May 19 Office Hour record)
 
--   sales means buying passes, loading money or other "products" to the
-    card
 
--   boardings means using the cards
 
-`card_id` is the shared column
 
-## Explore and analysis Q1 data
+## Explore and data cleaning for stop-level apc data
 
 ```{r explore apc_stops, warning=FALSE, message=FALSE}
 head(apc_stops)
@@ -81,12 +142,15 @@ n_trip_id - n_trip_id_unique
 ```{r derive sub-dataframe for apc_stops, warning=FALSE, message=FALSE}
 
 apc_stops_short <- apc_stops %>% 
+# TRIP_ID is kept to link with other two data sets
   group_by(STOP_ID, OPERATION_DATE)%>% 
   summarise(boarding_count = sum(PSNGR_BOARDINGS),
             alighting_count = sum(PSNGR_ALIGHTINGS)) %>% 
 mutate(OPERATION_DATE = ymd(OPERATION_DATE)) %>% 
 mutate(total_psngr_count = sum(boarding_count + alighting_count),
-         after_reinstate = ifelse(OPERATION_DATE >= ymd("2020-10-01"), TRUE, FALSE),
+#KMC suggests using data after 2020/09/19 due to major change on that date but also welcome analyzingthe full time range
+       after_major_change = ifelse(OPERATION_DATE >= ymd("2019-09-19"),TRUE, FALSE),
+       after_reinstate = ifelse(OPERATION_DATE >= ymd("2020-10-01"), TRUE, FALSE),
          day_number = yday(OPERATION_DATE))
 
 ```
@@ -126,16 +190,16 @@ model_multilevel <- lmer(total_psngr_count ~ after_reinstate + (1 | STOP_ID) + (
 
 ## Instructions and Codebook for Q1
 
-Question \#1: How did the October 1, 2020 reinstatement of fares affect
+Question 1: How did the October 1, 2020 reinstatement of fares affect
 ridership on King County Metro? Did the reinstatement of fares by King
 County Metro have differential effects on ridership among socio-economic
 groups?
 
-● Definitions: By "ridership", we mean the stop-level passenger
+- Definitions: By "ridership", we mean the stop-level passenger
 boardings (i.e., getting on the bus) and alightings (i.e., getting off
 the bus).
 
-● Variables: The data file
+- Variables: The data file
 stop_activity_granular_2020-09-01_2020-10-31.csv provides automated
 passenger counts at the stop-level for Metro buses. The variable
 `stop_id` provides the unique identifier for each bus stop. The variable
@@ -222,31 +286,31 @@ Sunday schedules.
 
 : Code book for apc_stops
 
-## MISC notes for Q1 data
 
--   The information on routes that did not have service changes on
-    9/19/20 can be found in the "alltrips" document.
 
--   Transferring hub stations would have a upward bias for total
-    stop-interaction counts, which I (Meng) assume can be identified in
-    alltrips document as well.
 
--   We can discuss the need to subgroup the dates by weekday/weedend
-    etc. There is already a column for this in the apc_stops data
+## Load Q2 data
 
-+------------------+---------------------------------------------------+
-| SCHED_D          | 0 = weekday, 1 = Saturday, 2 = Sunday             |
-| A                |                                                   |
-| Y_TYPE_CODED_NUM |                                                   |
-+==================+===================================================+
-+------------------+---------------------------------------------------+
+```{r load Q2 data, warning=FALSE, message=FALSE}
+lift_boardings <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_boardings.csv")
+lift_sales <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_sales.csv")
+lift_registry <- read_csv("data/raw_data/raw_data_from_king_county/Question 2_ Fare Subsidies/LIFT_registry.csv")
 
--   KCM confirms there is no way to see when/where a passenger gets on
-    and gets off the Metro
+```
 
--   No data for "Sound Transit", a competitor for KCM, which also
-    suspended fare on March 21, 2020, but reinstated fare earlier on
-    June 1, 2020.
+-   Registry means enrollment in the reduced fare program, after
+    expiration date, the card become a normal adult card, normally valid
+    2 years, but annual pass's registery is good for one year (details
+    in May 19 Office Hour record)
+
+-   sales means buying passes, loading money or other "products" to the
+    card
+
+-   boardings means using the cards
+
+`card_id` is the shared column
+
+
 
 ## Explore and analysis - Q2 data
 
