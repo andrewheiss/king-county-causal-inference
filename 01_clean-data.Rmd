@@ -37,7 +37,7 @@ General model:
 
 Outcomes: 
 
-- `use_after_six`: Binary indicator for whether they reloaded the card 6+ months after card is issued
+- `load_after_six`: Binary indicator for whether they reloaded the card 6+ months after card is issued
 - `total_amount_after_six`: Amount of money refilled 6+ months after card is issued
 - `total_loadings_after_six`: Count of refills 6+ months after card is issued
 
@@ -77,7 +77,7 @@ Outcomes:
 Treatment:
 
 - Same as Q2-A and Q2-B, and maybe...
-- `incentive_passport_binary`: Binary indicator for whether the person was in Phase 1 or Phase 2 of the pseduo RCT passport program
+- `treatment_passport_binary`: Binary indicator for whether the person was in Phase 1 or Phase 2 of the pseduo RCT passport program
 
 
 ### Controls
@@ -275,7 +275,7 @@ sales_before_after_six_months <- sales %>%
   ungroup() %>% 
   # Make wide
   pivot_wider(names_from = after_six, values_from = c(total_amount, total_loadings)) %>% 
-  mutate(use_after_six = total_amount_after_six > 0)
+  mutate(load_after_six = total_amount_after_six > 0)
 sales_before_after_six_months
 
 boardings_before_after_six_months <- boardings %>%
@@ -299,9 +299,9 @@ riders_final <- riders_clean %>%
   # Consider NA initial loads to be 0
   replace_na(list(`Initial Load` = "0")) %>% 
   mutate(incentive_cat = factor(`Initial Load`, levels = incentives, ordered = TRUE),
-         incentive_passport_binary = !is.na(`Study Card`)) %>%
+         treatment_passport_binary = !is.na(`Study Card`)) %>%
   group_by(id) %>% 
-  mutate(across(c(incentive_cat, incentive_passport_binary), ~lag(.), .names = "{.col}_prev")) %>% 
+  mutate(across(c(incentive_cat, treatment_passport_binary), ~lag(.), .names = "{.col}_prev")) %>% 
   #
   # Create outcome variables
   # Bring in collapsed sales data for reloading outcome
@@ -311,7 +311,7 @@ riders_final <- riders_clean %>%
   mutate(ever_reenroll = any(times > 1),
          reenrolled = times > 1,
          enrolled_previously = n() != 1,
-         reenroll_after_study = incentive_passport_binary_prev & ever_reenroll) %>% 
+         reenroll_after_study = treatment_passport_binary_prev & ever_reenroll) %>% 
   ungroup() %>% 
   #
   # Create controls and confounders
@@ -325,8 +325,8 @@ riders_final <- riders_clean %>%
   mutate(across(c(starts_with("total_amount"), starts_with("total_loadings"),
                   starts_with("boardings_")), 
                 ~replace_na(., 0))) %>% 
-  replace_na(list(use_after_six = FALSE, incentive_passport_binary_prev = FALSE,
-                  incentive_cat_prev = "0"))
+  replace_na(list(load_after_six = FALSE, treatment_passport_binary_prev = FALSE,
+                  incentive_cat_prev = "Nothing"))
 riders_final
 
 # MAYBE: Total money spent before 2019/2020 enrollment
