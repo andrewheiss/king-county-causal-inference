@@ -27,6 +27,11 @@ riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
 riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
 wa_bgs <- readRDS(here("data", "derived_data", "washington_block-groups.rds"))
 acs_wa <- readRDS(here("data", "derived_data", "washington_acs.rds"))
+
+# By default, R uses polynomial contrasts for ordered factors in linear models
+# options("contrasts") 
+# So make ordered factors use treatment contrasts instead
+options(contrasts = rep("contr.treatment", 2))
 ```
 
 
