@@ -325,9 +325,10 @@ riders_final <- riders_clean %>%
   mutate(across(c(starts_with("total_amount"), starts_with("total_loadings"),
                   starts_with("boardings_")), 
                 ~replace_na(., 0))) %>% 
+  # Add "Nothing" as a category
+  mutate(across(starts_with("incentive_cat"), ~fct_expand(.x, "Nothing"))) %>%
   replace_na(list(load_after_six = FALSE, treatment_passport_binary_prev = FALSE,
                   incentive_cat_prev = "Nothing"))
-riders_final
 
 # MAYBE: Total money spent before 2019/2020 enrollment
 # MAYBE: Total refills before 2019/2020 enrollment
