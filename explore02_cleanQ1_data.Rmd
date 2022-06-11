@@ -70,7 +70,9 @@ trip_changes_clean <- trip_changes %>%
          change_end_date = `End Date`,
          major_change_code = SERVICE_CHANGE_NUM,
          minor_change_code = MINOR_CHANGE_NUM,
-         trip_id = TRIP_ID)
+         trip_id = TRIP_ID) %>%
+  group_by(trip_id) |> 
+  slice(1)
 ```
 
 ### data cleanning trip changes data
@@ -96,6 +98,15 @@ head(apc_stops_clean)
 
 The two clean data sets are ready to merge but since the they are too large to merge in the same session, we will save the cleaned data first and merge in a separate session. 
 The plan is 
+
+```{r}
+apc_stops_final <- apc_stops_clean %>% 
+  left_join(trip_changes_clean, by = "trip_id")
+
+ggplot(apc_stops_final, aes(x = date)) +
+  geom_histogram(binwidth = 1)
+
+```
 
 `apc_stops_clean %>% left_join(trip_changes_clean, by = "trip_id")`
 
