@@ -22,6 +22,7 @@ library(sf)
 library(lubridate)
 library(here)
 library(broom)
+library(lme4)
 
 riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
 riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
@@ -112,20 +113,39 @@ model_incentive_reenroll<- glm(ever_reenroll ~ incentive_cat + Age + RaceDesc + 
                           data = rider_with_SAP, 
                           family = "binomial")
 summary(model_incentive_reenroll)
+
+library(marginaleffects)
+
+model_incentive_reenroll |> 
+  marginaleffects(variables = "incentive_cat") |> 
+  summary()
+
 ```
 
 ```{r model incentive_cat-reenrolled}
 # this is the model with the incentive timing order
-model_incentive_prev_reenroll<- glm(reenrolled ~ incentive_cat_prev + Age + RaceDesc + bg_income, 
+model_incentive_prev_reenroll<- glm(reenrolled ~ incentive_cat_prev + Age + RaceDesc + bg_income + id, 
                           data = rider_with_SAP, 
                           family = "binomial")
 summary(model_incentive_prev_reenroll)
+
+asdf<- lmer(reenrolled ~ incentive_cat_prev + Age + RaceDesc + bg_income + (1 | id), 
+                          data = rider_with_SAP)
+
+
+model_incentive_prev_reenroll |> 
+  marginaleffects(variables = "incentive_cat_prev") |> 
+  summary()
 ```
 
 ```{r model incentive_cat-money spent}
 model_incentive_money<- lm(total_amount_after_six ~ incentive_cat + Age + RaceDesc + bg_income, 
                           data = rider_with_SAP)
 summary(model_incentive_money)
+
+model_incentive_money |> 
+  marginaleffects(variables = "incentive_cat") |> 
+  summary()
 ```
 
 
