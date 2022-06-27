@@ -71,8 +71,7 @@ trip_changes_clean <- trip_changes %>%
          major_change_code = SERVICE_CHANGE_NUM,
          minor_change_code = MINOR_CHANGE_NUM,
          trip_id = TRIP_ID) %>%
-  group_by(trip_id) |> 
-  slice(1)
+  group_by(trip_id) %>% slice(1)
 ```
 
 ### data cleanning trip changes data
@@ -92,33 +91,63 @@ apc_stops_clean <- apc_stops %>%
          trip_id = TRIP_ID) %>% 
   mutate(day_type = case_when(day_type == 0 ~ "weekday",
                               day_type == 1 ~ "Saturday",
-                              day_type == 2 ~ "Sunday"))
+                              day_type == 2 ~ "Sunday")) %>% 
+  
+# add route change dates corresponding to major/minor change codes to the stop level apc
+  left_join(trip_changes_clean, by = "trip_id")
+
+head(apc_stops_clean)
+```
+```{r derive new columns related to dates}
+# add route change dates corresponding to major/minor change codes to the stop level apc
+  left_join(trip_changes_clean, by = "trip_id")  %>% 
+  mutate(date = ymd(date),
+         change_start_date = mdy(change_start_date),
+         change_end_date = mdy(change_end_date)) %>%
+  mutate(under_temp_change = ifelse(date>= change_start_date & date <= change_end_date, TRUE, FALSE),
+#KMC suggests using data after 2020/09/19 due to major change on that date but also welcome analyzing the full time range
+         after_major_change = ifelse(date >= ymd("2019-09-19"),TRUE, FALSE),
+         after_reinstate = ifelse(date >= ymd("2020-10-01"), TRUE, FALSE),)
+
 head(apc_stops_clean)
 ```
 
-The two clean data sets are ready to merge but since the they are too large to merge in the same session, we will save the cleaned data first and merge in a separate session. 
-The plan is 
 
-```{r}
-apc_stops_final <- apc_stops_clean %>% 
-  left_join(trip_changes_clean, by = "trip_id")
+```{r summerize data to stop-date level}
+apc_stop_day <- apc_stops_clean %>% 
+  group_by(stop_id, date) %>% 
+  summarise(day_type = first(day_type),
+            boarding_day_count = sum(boarding_num),
+            alighting_day_count = sum(alighting_num)
+# please see note
+#           under_change_ratio = n(under_temp_change == TRUE) / n()
+            ) %>% 
+mutate(stop_encounter_day_count = boarding_day_count + alighting_day_count)
 
-ggplot(apc_stops_final, aes(x = date)) +
-  geom_histogram(binwidth = 1)
+head(apc_stop_day)
 
 ```
 
-`apc_stops_clean %>% left_join(trip_changes_clean, by = "trip_id")`
+*Note* The route change information at the trip level is lost if we summarize by day, but we can derive a new variable like the ratio of trips passing by this stop that is under temporary route change and then include that as a control. 
 
-and `mutate` a new column indicating whether the `date` is within `change_start_date` and `change_end_date`
+The two clean data sets are ready to merge but since the they are too large to merge in the same session, we 
 
+
+## merge stop level apc and 
 ## save clean data
 ```{r save data}
-rm(apc_stops) # free up some space
-write.csv(trip_changes_clean, file = here("data", "derived_data", "trip_changes_clean.csv"))
+#rm(apc_stops) # free up some space
+#write.csv(trip_changes_clean, file = here("data", "derived_data", "trip_changes_clean.csv"))
 #write.csv(apc_stops_clean, file = here("data", "derived_data", "apc_stops_clean.csv")) 
 #still couldn't run
   
+```
+```{r explore data}
+# to delete later 
+nrow(trip_changes_clean)
+n_distinct(trip_changes_clean$trip_id)
+n_distinct(trip_changes$TRIP_ID)
+n_distinct(apc_stops$STOP_ID)
 ```
 
 
