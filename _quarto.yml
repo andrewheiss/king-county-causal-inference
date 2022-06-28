@@ -1,0 +1,42 @@
+project:
+  type: website
+  render:
+    - "0*.qmd"
+    - "*.qmd"
+
+website:
+  title: "King County Causal Inference"
+  search: false
+  navbar:
+    background: primary
+    pinned: true
+    right:
+      - icon: github
+        aria-label: github
+        href: https://github.com/andrewheiss/king-county-causal-inference
+  sidebar:
+    style: "docked"
+    background: "dark"
+    contents:
+      - section: "Clean and explore"
+        contents:
+          - 01_clean-data.qmd
+          - 02_eda.qmd
+      - section: "Analysis"
+        contents:
+          - text: "Q1: Effect of reinstatement on ridership"
+            file: 03_q1.qmd
+          - text: "Q2: Effect of subsidies on enrollment"
+            file: 03_q2.qmd
+
+format:
+  html:
+    theme: minty
+    css: html/styles.css
+    toc: true
+    highlight-style: monokai
+    code-fold: true
+    code-tools: true
+
+
+

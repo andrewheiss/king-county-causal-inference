@@ -1,0 +1,403 @@
+---
+title: "Q2: Effect of subsidies on enrollment"
+format:
+  html:
+    code-fold: "show"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
+                      fig.width = 6, fig.height = (6 * 0.618),
+                      out.width = "80%", collapse = TRUE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
+options(digits = 3, width = 90,
+        dplyr.summarise.inform = FALSE)
+```
+
+```{r load-libraries-data, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(sf)
+library(kableExtra)
+library(ggmosaic)
+library(gghalves)
+library(ggokabeito)
+library(scales)
+library(lubridate)
+library(here)
+library(broom)
+library(lme4)
+library(broom.mixed)
+library(WeightIt)
+library(marginaleffects)
+library(modelsummary)
+
+riders_final <- readRDS(here("data", "derived_data", "riders_final.rds"))
+riders_final_2019 <- readRDS(here("data", "derived_data", "riders_final_2019.rds"))
+wa_bgs <- readRDS(here("data", "derived_data", "washington_block-groups.rds"))
+acs_wa <- readRDS(here("data", "derived_data", "washington_acs.rds"))
+
+# By default, R uses polynomial contrasts for ordered factors in linear models:
+# > options("contrasts") 
+# So we make ordered factors use treatment contrasts instead
+options(contrasts = rep("contr.treatment", 2))
+
+theme_kc <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(),
+          plot.background = element_rect(fill = "white", color = NA),
+          plot.title = element_text(face = "bold"),
+          axis.title = element_text(face = "bold"),
+          strip.text = element_text(face = "bold"),
+          strip.background = element_rect(fill = "grey80", color = NA),
+          legend.title = element_text(face = "bold"))
+}
+
+riders_model <- riders_final_2019 %>% 
+  select(load_after_six, total_amount_after_six, total_loadings_after_six, 
+         reenrolled, treatment_passport_binary, treatment_passport_binary,
+         incentive_cat_collapsed, incentive_cat_collapsed_prev, treatment_sap_binary,
+         total_amount_before_six, total_loadings_before_six, enrolled_previously,
+         boardings_king_county_before_six, boardings_sound_transit_before_six,
+         Age, RaceDesc, LanguageSpoken, id, 
+         bg_pct_white, bg_pct_male, bg_pct_hs, bg_pct_ba, 
+         bg_internet, bg_travel_time_per_capita, bg_pub_trans_per_capita, 
+         bg_income, bg_median_rent) %>% 
+  na.omit()
+```
+
+
+## Initial trends
+
+Distribution of incentives
+
+```{r incentives-tbl}
+#| code-fold: true
+incentives_2019 <- riders_final_2019 %>% 
+  count(incentive_cat, name = "count_2019")
+
+incentives_all <- riders_final %>% 
+  count(incentive_cat, name = "count_all")
+
+incentives_combined <- incentives_all %>% 
+  left_join(incentives_2019, by = "incentive_cat")  %>%
+  mutate(diff = count_all - count_2019)
+
+incentives_combined %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+Only subsidized annual pass:
+
+```{r plot-sap, warning=FALSE}
+ggplot(data = riders_final_2019) +
+  geom_mosaic(aes(x = product(treatment_sap_binary), fill = ever_reenroll), alpha = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_okabe_ito() +
+  labs(x = "Subsidized annual pass", y = "Proportion", fill = "Reenrolled") +
+  theme_kc() +
+  theme(legend.position = "top")
+```
+
+All incentive categories:
+
+```{r plot-incentive-cat, fig.height=6}
+ggplot(data = riders_final_2019) +
+  geom_mosaic(aes(x = product(incentive_cat_collapsed), fill = ever_reenroll), alpha = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_okabe_ito() +
+  labs(x = "Subsidized annual pass", y = "Proportion", fill = "Reenrolled") +
+  theme_kc() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "top")
+```
+
+
+## Q2~A~: Effect of different levels of incentives on longer-term loading of value and passes
+
+Outcomes representing long term loading: 
+
+- `load_after_six`: Binary indicator for whether they reloaded the card 6+ months after card is issued
+- `total_amount_after_six`: Amount of money refilled 6+ months after card is issued
+- `total_loadings_after_six`: Count of refills 6+ months after card is issued
+
+Treatment: 
+
+- `incentive_cat_collapsed`: Categorical variable showing the kind of incentive each person was given with the card, if any. Possible values are 0, 10, 10+ (15, 20, 30, 50, 70), Shorter Pass (Misc. Pass, Monthly Pass, Passport), and Subsidized Annual Pass; the values are ordered based on their intensity
+
+
+### IPW
+
+```{r build-incentive-weights}
+incentive_weights <- weightit(
+  incentive_cat_collapsed_prev ~ Age + RaceDesc + LanguageSpoken + 
+    total_amount_before_six + total_loadings_before_six + enrolled_previously +
+    boardings_king_county_before_six + boardings_sound_transit_before_six +
+    bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+    bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent,
+  data = riders_model, estimand = "ATE", method = "ps")
+
+riders_model_with_weights <- riders_model %>% 
+  mutate(ipw = incentive_weights$weights) %>% 
+  mutate(ipw = ifelse(ipw >= 30, 30, ipw))
+```
+
+```{r build-passport-weights}
+passport_weights <- weightit(
+  treatment_passport_binary ~ Age + RaceDesc + LanguageSpoken + 
+    total_amount_before_six + total_loadings_before_six + enrolled_previously +
+    boardings_king_county_before_six + boardings_sound_transit_before_six +
+    bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+    bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent,
+  data = riders_model, estimand = "ATE", method = "ps")
+
+passport_model_with_weights <- riders_model %>% 
+  mutate(ipw = passport_weights$weights) %>% 
+  mutate(ipw = ifelse(ipw >= 30, 30, ipw))
+```
+
+
+### Reloading after 6 months
+
+```{r plot-reload-mosaic, fig.height=6}
+ggplot(riders_model) +
+  geom_mosaic(aes(x = product(incentive_cat_collapsed_prev), fill = load_after_six), alpha = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_okabe_ito() +
+  labs(x = "Subsidy provided", y = "Proportion", fill = "Reloaded 6+ months later") +
+  theme_kc() +
+  theme(legend.position = "top") +
+  coord_flip()
+```
+
+```{r model-q2a-1, cache=TRUE}
+model_q2a_1 <- glmer(load_after_six ~ incentive_cat_collapsed_prev + (1 | id),
+                     family = binomial(link = "logit"),
+                     data = riders_model_with_weights, weights = ipw)
+```
+
+```{r model-q2a-1-show}
+tidy(model_q2a_1) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r model-q2a-1-cmp, cache=TRUE}
+model_q2a_1_cmp <- comparisons(model_q2a_1, 
+                                variables = "incentive_cat_collapsed_prev", 
+                                contrast_factor = "reference")
+model_q2a_1_cmp %>% 
+  tidy() %>% 
+  mutate(contrast = fct_rev(fct_inorder(contrast))) %>% 
+  ggplot(aes(x = estimate * 100, y = contrast)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low * 100, xmax = conf.high * 100)) +
+  scale_x_continuous(labels = ~paste0(.x, " pp")) +
+  labs(x = "Percentage point change", y = NULL) +
+  theme_kc()
+```
+
+### Total amount refilled after 6 months
+
+```{r calc-amount-loadings-avgs}
+avg_after_6 <- riders_model %>% 
+  group_by(incentive_cat_collapsed_prev) %>% 
+  summarize(avg_amount = mean(total_amount_after_six),
+            se_amount = sd(total_amount_after_six) / sqrt(n()),
+            hi_lo_amount = map2(avg_amount, se_amount, 
+                                ~.x + (.y * qnorm(c(0.025, 0.975)))),
+            avg_loadings = mean(total_loadings_after_six),
+            se_loadings = sd(total_loadings_after_six) / sqrt(n()),
+            hi_lo_loadings = map2(avg_loadings, se_loadings, 
+                                  ~.x + (.y * qnorm(c(0.025, 0.975)))),)
+avg_after_6 %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r plot-total-amount}
+ggplot(riders_model, aes(x = incentive_cat_collapsed_prev, 
+                         y = total_amount_after_six, 
+                         color = incentive_cat_collapsed_prev)) +
+  geom_point(size = 0.2, alpha = 0.25, 
+             position = position_jitter(width = 0.25, seed = 1234)) +
+  scale_color_okabe_ito(guide = "none") +
+  scale_x_discrete(labels = label_wrap(10)) +
+  theme_kc()
+```
+
+```{r plot-total-amount-avg}
+ggplot(riders_model, aes(x = incentive_cat_collapsed_prev, 
+                         y = total_amount_after_six, 
+                         color = incentive_cat_collapsed_prev)) +
+  stat_summary(geom = "pointrange", fun.data = "mean_se", fun.args = list(mult = 1.96)) +
+  scale_color_okabe_ito(guide = "none") +
+  scale_x_discrete(labels = label_wrap(10)) +
+  theme_kc()
+```
+
+```{r model-q2a-2}
+model_q2a_2 <- lmer(total_amount_after_six ~ incentive_cat_collapsed_prev + (1 | id),
+                    data = riders_model_with_weights, weights = ipw)
+```
+
+```{r model-q2a-2-show}
+tidy(model_q2a_2) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r model-q2a-2-cmp}
+model_q2a_2_cmp <- comparisons(model_q2a_2, 
+                               variables = "incentive_cat_collapsed_prev", 
+                               contrast_factor = "reference")
+model_q2a_2_cmp %>% 
+  tidy() %>% 
+  mutate(contrast = fct_rev(fct_inorder(contrast))) %>% 
+  ggplot(aes(x = estimate, y = contrast)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  scale_x_continuous(labels = label_dollar()) +
+  labs(x = "Difference in total amount loaded six months later", y = NULL) +
+  theme_kc()
+```
+
+
+### Total loadings after 6 months
+
+```{r model-q2a-3}
+model_q2a_3 <- lmer(total_loadings_after_six ~ incentive_cat_collapsed_prev + (1 | id),
+                    data = riders_model_with_weights, weights = ipw)
+```
+
+```{r model-q2a-3-show}
+tidy(model_q2a_3) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+
+```{r model-q2a-3-cmp}
+model_q2a_3_cmp <- comparisons(model_q2a_3, 
+                               variables = "incentive_cat_collapsed_prev", 
+                               contrast_factor = "reference")
+model_q2a_3_cmp %>% 
+  tidy() %>% 
+  mutate(contrast = fct_rev(fct_inorder(contrast))) %>% 
+  ggplot(aes(x = estimate, y = contrast)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  labs(x = "Difference in average count of card loadings", y = NULL) +
+  theme_kc()
+```
+
+
+### All models
+
+```{r models-q2a-all}
+modelsummary(list("Reload (binary)" = model_q2a_1,
+                  "Amount refilled" = model_q2a_2,
+                  "Loadings" = model_q2a_3))
+```
+
+
+## Q2~B~: Effect of different levels of incentives on longer-term loading of value and passes
+
+Outcome: 
+
+- `reenrolled`: Binary indicator for whether current card issuing is a reenrollment (TRUE when the suffix for the card ID is greater than 1)
+
+```{r plot-reenroll-mosaic, fig.height=6}
+ggplot(riders_model) +
+  geom_mosaic(aes(x = product(incentive_cat_collapsed_prev), fill = reenrolled), alpha = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_okabe_ito() +
+  labs(x = "Subsidy provided", y = "Proportion", fill = "Reenrolled") +
+  theme_kc() +
+  theme(legend.position = "top") +
+  coord_flip()
+```
+
+```{r tbl-reload-avg}
+riders_model %>% 
+  group_by(incentive_cat_collapsed_prev) %>% 
+  summarize(prop = mean(reenrolled)) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r model-q2b, cache=TRUE}
+model_q2b <- glmer(reenrolled ~ incentive_cat_collapsed_prev + (1 | id),
+                   family = binomial(link = "logit"),
+                   data = riders_model_with_weights, weights = ipw)
+```
+
+```{r model-q2b-show}
+tidy(model_q2b) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r model-q2b-cmp, cache=TRUE}
+model_q2b_cmp <- comparisons(model_q2b, 
+                             variables = "incentive_cat_collapsed_prev", 
+                             contrast_factor = "reference")
+model_q2b_cmp %>% 
+  tidy() %>% 
+  mutate(contrast = fct_rev(fct_inorder(contrast))) %>% 
+  ggplot(aes(x = estimate * 100, y = contrast)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low * 100, xmax = conf.high * 100)) +
+  scale_x_continuous(labels = ~paste0(.x, " pp")) +
+  labs(x = "Percentage point change", y = NULL) +
+  theme_kc()
+```
+
+lol i have no idea what's happening here
+
+
+## Q2~C~: Effect of different levels of incentives on longer-term loading of value and passes
+
+Outcome: 
+
+- `reenrolled`: Binary indicator for whether current card issuing is a reenrollment (TRUE when the suffix for the card ID is greater than 1)
+
+```{r plot-reenroll-mosaic-binary, fig.height=6}
+ggplot(passport_model_with_weights) +
+  geom_mosaic(aes(x = product(treatment_passport_binary), fill = reenrolled), alpha = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_okabe_ito() +
+  labs(x = "Subsidy provided", y = "Proportion", fill = "Reenrolled") +
+  theme_kc() +
+  theme(legend.position = "top") +
+  coord_flip()
+```
+
+```{r model-q2c-4, cache=TRUE}
+model_q2c_4 <- glmer(reenrolled ~ treatment_passport_binary + (1 | id),
+                     family = binomial(link = "logit"),
+                     data = passport_model_with_weights, weights = ipw)
+```
+
+```{r model-q2c-4-show}
+tidy(model_q2c_4) %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r model-q2c-4-cmp, cache=TRUE}
+model_q2c_4_cmp <- comparisons(model_q2c_4, 
+                               variables = "treatment_passport_binary", 
+                               contrast_factor = "reference")
+model_q2c_4_cmp %>% 
+  tidy() %>% 
+  mutate(contrast = fct_rev(fct_inorder(contrast))) %>% 
+  ggplot(aes(x = estimate * 100, y = contrast)) +
+  geom_vline(xintercept = 0) +
+  geom_pointrange(aes(xmin = conf.low * 100, xmax = conf.high * 100)) +
+  scale_x_continuous(labels = ~paste0(.x, " pp")) +
+  labs(x = "Percentage point change", y = NULL) +
+  theme_kc()
+```

@@ -2,9 +2,9 @@
 title: "Data cleaning"
 editor_options: 
   chunk_output_type: inline
-output: 
-  html_document: 
-    toc: yes
+format:
+  html:
+    code-fold: "show"
 ---
 
 ```{r setup, include=FALSE}
@@ -72,12 +72,12 @@ General models:
 Outcomes: 
 
 - Same as Q2-A and Q2-B, and maybe...
-- `reenroll_after_study`: Binary indicator for whether the person reenrolled speciifcally after being assigned to one of the pseduo RCT treatment groups and receiving a passport previously
+- `reenroll_after_study`: Binary indicator for whether the person reenrolled specifically after being assigned to one of the pseudo RCT treatment groups and receiving a passport previously
 
 Treatment:
 
 - Same as Q2-A and Q2-B, and maybe...
-- `treatment_passport_binary`: Binary indicator for whether the person was in Phase 1 or Phase 2 of the pseduo RCT passport program
+- `treatment_passport_binary`: Binary indicator for whether the person was in Phase 1 or Phase 2 of the pseudo RCT passport program
 
 
 ### Controls
@@ -138,6 +138,8 @@ lift_registry_raw <- read_csv(here("data", "raw_data", "raw_data_from_king_count
 ```{r clean-riders-data}
 incentives <- c("0", "10", "15", "20", "30", "50", "70", "Misc. Pass", 
                 "Monthly Pass", "Passport", "Subsidized Annual Pass")
+incentives_labs <- c("$0", "$10", "$15", "$20", "$30", "$50", "$70", "Misc. Pass", 
+                     "Monthly Pass", "Passport", "Subsidized Annual Pass")
 
 riders_clean <- lift_registry_raw %>% 
   # Split id column to get enrollment count
@@ -216,11 +218,22 @@ boardings
 
 acs_vars <- tribble(
   ~name,        ~var_name,       ~description,
-  "B01003_001", "bg_population", "Total population",
-  "B02001_001", "bg_race",       "Race",
-  "B02001_002", "bg_race_white", "Race: White alone",
-  "B19013_001", "bg_income",     "Median household income"
+  "B01003_001", "bg_population",  "Total population",
+  "B02001_001", "bg_race_denom",  "Race denominator",
+  "B02001_002", "bg_race_white",  "Race: White alone",
+  "B19013_001", "bg_income",      "Median household income",
+  "B01001_001", "bg_age_denom",   "Age denominator",
+  "B01001_002", "bg_male",        "Male",
+  "B15003_001", "bg_educ_denom",  "Education denominator",
+  "B15003_017", "bg_hs",          "High school",
+  "B15003_022", "bg_ba",          "Bachelor's degree",
+  "B08134_061", "bg_pub_trans",   "Minutes on public transportation",
+  "B08303_001", "bg_travel_time", "Total travel time",
+  "B25064_001", "bg_median_rent", "Median rent",
+  "B28002_001", "bg_internet_denom", "Internet denominator",
+  "B28002_013", "bg_no_internet", "No internet"
 )
+
 
 # Create a named vector to pass to get_acs()
 vars_to_get <- acs_vars$name %>% 
@@ -236,7 +249,17 @@ acs_raw <- get_acs(geography = "block group",
 # Make the data wide
 acs_wa <- acs_raw %>% 
   select(-NAME, -moe) %>% 
-  pivot_wider(names_from = "variable", values_from = "estimate")
+  pivot_wider(names_from = "variable", values_from = "estimate") %>% 
+  mutate(bg_pct_white = bg_race_white / bg_race_denom,
+         bg_pct_male = bg_male / bg_population,
+         bg_travel_time_per_capita = bg_travel_time / bg_population,
+         bg_pub_trans_per_capita = bg_pub_trans / bg_population,
+         bg_pct_hs = bg_hs / bg_educ_denom,
+         bg_pct_ba = bg_ba / bg_educ_denom,
+         bg_internet = 1 - (bg_no_internet / bg_internet_denom)) %>% 
+  select(GEOID, bg_pct_white, bg_pct_male, bg_pct_hs, bg_pct_ba, 
+         bg_internet, bg_travel_time_per_capita, bg_pub_trans_per_capita, 
+         bg_income, bg_median_rent)
 
 # Shapefiles for WA block groups
 # Get block group boundaries
@@ -298,10 +321,17 @@ riders_final <- riders_clean %>%
   # Create treatment variables
   # Consider NA initial loads to be 0
   replace_na(list(`Initial Load` = "0")) %>% 
-  mutate(incentive_cat = factor(`Initial Load`, levels = incentives, ordered = TRUE),
-         treatment_passport_binary = !is.na(`Study Card`)) %>%
+  mutate(incentive_cat = factor(`Initial Load`, levels = incentives, 
+                                labels = incentives_labs, ordered = TRUE),
+         treatment_passport_binary = !is.na(`Study Card`),
+         treatment_sap_binary = incentive_cat == "Subsidized Annual Pass") %>%
   group_by(id) %>% 
-  mutate(across(c(incentive_cat, treatment_passport_binary), ~lag(.), .names = "{.col}_prev")) %>% 
+  mutate(incentive_cat_collapsed = fct_collapse(
+    incentive_cat,
+    ">$10" = c("$15", "$20", "$30", "$50", "$70"),
+    "Shorter Pass" = c("Misc. Pass", "Monthly Pass", "Passport"))) %>% 
+  mutate(across(c(incentive_cat, incentive_cat_collapsed, treatment_passport_binary, treatment_sap_binary), 
+                ~lag(.), .names = "{.col}_prev")) %>% 
   #
   # Create outcome variables
   # Bring in collapsed sales data for reloading outcome
@@ -328,7 +358,12 @@ riders_final <- riders_clean %>%
   # Add "Nothing" as a category
   mutate(across(starts_with("incentive_cat"), ~fct_expand(.x, "Nothing"))) %>%
   replace_na(list(load_after_six = FALSE, treatment_passport_binary_prev = FALSE,
-                  incentive_cat_prev = "Nothing"))
+                  treatment_sap_binary_prev = FALSE,
+                  incentive_cat_prev = "Nothing", incentive_cat_collapsed_prev = "Nothing")) %>% 
+  # Put "Nothing" first so it's the reference category
+  mutate(across(starts_with("incentive_cat"), ~fct_relevel(.x, "Nothing"))) %>% 
+  # Get rid of "Nothing" if there aren't any
+  mutate(across(starts_with("incentive_cat"), ~fct_drop(.x, only = "Nothing")))
 
 # MAYBE: Total money spent before 2019/2020 enrollment
 # MAYBE: Total refills before 2019/2020 enrollment

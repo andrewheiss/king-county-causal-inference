@@ -1,0 +1,14 @@
+---
+title: "Q1"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", fig.retina = 2,
+                      fig.width = 6, fig.height = (6 * 0.618),
+                      out.width = "80%", collapse = TRUE,
+                      dev = "png", dev.args = list(type = "cairo-png"))
+options(digits = 3, width = 90,
+        dplyr.summarise.inform = FALSE)
+```

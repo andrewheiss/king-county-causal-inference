@@ -2,9 +2,6 @@
 title: "Exploratory data analysis"
 editor_options: 
   chunk_output_type: inline
-output: 
-  html_document: 
-    toc: yes
 ---
 
 ```{r setup, include=FALSE}
