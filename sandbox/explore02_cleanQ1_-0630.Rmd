@@ -9,6 +9,7 @@ editor_options:
 library(tidyverse)
 library(here)
 library(sf)
+library(tidycensus)
 library(data.table)
 library(lubridate)
 ```
@@ -139,7 +140,120 @@ head(apc_stop_day)
 The two clean data sets are ready to merge but since the they are too large to merge in the same session, we 
 
 
-## merge stop level apc and 
+## import SF data
+
+```{r sf data import}
+shapename <- read_sf(here("data", "raw_data", "raw_data_from_king_county", 
+                          "KCM_Stops_Data", 
+                          "kcm_stops.shp"))
+```
+
+
+```{r sf data with GEOID}
+# using codes shared on Campus wire
+stops <- cbind(shapename, st_transform(x = shapename, crs = 4326) %>% st_coordinates)
+
+#load the census tract shape files for King County using the tigris package
+kctracts <- tigris::tracts(state = 53, county = 033, cb = FALSE, year = 2020)
+
+stops_sf <- st_as_sf(data.frame(x = stops$X, y = stops$Y), coords = c('x', 'y'), crs = st_crs(kctracts))
+# adding the stop_id back 
+stops_sf <- cbind(shapename$STOP_ID, stops_sf)
+
+#create a new data frame that matches the bus stop data to the census tract
+stops_census <- stops_sf %>% mutate(
+  intersection = as.integer(st_intersects(geometry, kctracts)),
+  GEOID = if_else(is.na(intersection), '', kctracts$GEOID[intersection])
+) %>% 
+  rename(stop_id = shapename.STOP_ID)
+
+#the GEOID is also available in the census data
+
+```
+
+
+## Import Census Data 
+Using the codes in Q2
+
+
+```{r get-clean-census, cache=TRUE, message=FALSE, warning=FALSE, results="hide"}
+# See a list of variable names
+# Also available at https://api.census.gov/data/2020/acs/acs5/variables.html
+# acs_possible_vars <- load_variables(2020, "acs5", cache = TRUE)
+
+acs_vars <- tribble(
+  ~name,        ~var_name,       ~description,
+  "B01003_001", "bg_population",  "Total population",
+  "B02001_001", "bg_race_denom",  "Race denominator",
+  "B02001_002", "bg_race_white",  "Race: White alone",
+  "B19013_001", "bg_income",      "Median household income",
+  "B01001_001", "bg_age_denom",   "Age denominator",
+  "B01001_002", "bg_male",        "Male",
+  "B15003_001", "bg_educ_denom",  "Education denominator",
+  "B15003_017", "bg_hs",          "High school",
+  "B15003_022", "bg_ba",          "Bachelor's degree",
+  "B08134_061", "bg_pub_trans",   "Minutes on public transportation",
+  "B08303_001", "bg_travel_time", "Total travel time",
+  "B25064_001", "bg_median_rent", "Median rent",
+  "B28002_001", "bg_internet_denom", "Internet denominator",
+  "B28002_013", "bg_no_internet", "No internet"
+)
+
+
+# Create a named vector to pass to get_acs()
+vars_to_get <- acs_vars$name %>% 
+  set_names(acs_vars$var_name)
+
+# Get 2019 ACS data
+# 2020 would be neat, but ≈20% of it is missing, ugh
+# 2020 decennial would be neat too, but it's a huge mess
+acs_raw <- get_acs(geography = "block group", 
+                   variables = vars_to_get,
+                   state = 53, year = 2019, survey = "acs5")
+
+# Make the data wide
+acs_wa <- acs_raw %>% 
+  select(-NAME, -moe) %>% 
+  pivot_wider(names_from = "variable", values_from = "estimate") %>% 
+  mutate(bg_pct_white = bg_race_white / bg_race_denom,
+         bg_pct_male = bg_male / bg_population,
+         bg_travel_time_per_capita = bg_travel_time / bg_population,
+         bg_pub_trans_per_capita = bg_pub_trans / bg_population,
+         bg_pct_hs = bg_hs / bg_educ_denom,
+         bg_pct_ba = bg_ba / bg_educ_denom,
+         bg_internet = 1 - (bg_no_internet / bg_internet_denom)) %>% 
+  mutate(GEOID = str_sub(GEOID, 1, 11)) %>% 
+  select(GEOID, bg_pct_white, bg_pct_male, bg_pct_hs, bg_pct_ba, 
+         bg_internet, bg_travel_time_per_capita, bg_pub_trans_per_capita, 
+         bg_income, bg_median_rent)
+```
+
+
+```{r merge stops and census, message=FALSE, warning=FALSE}
+# merging acs and stop_census 
+stops_census_data <- stops_census %>% 
+  left_join(acs_wa, by = "GEOID")
+```
+
+
+```{r merge all the data to use}
+apc_stop_final <- apc_stop_day %>% 
+  left_join(stops_census_data, by = "stop_id")
+```
+
+
+```{r model TWFE with controls}
+model_did <- lm(stop_encounter_day_count ~ after_reinstate +
+                under_change_ratio+
+                bg_pct_white * after_reinstate +
+                bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+                bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent,
+                data = apc_stop_final)
+summary(model_did)
+```
+
+
+
 ## save clean data
 ```{r save data}
 #write.csv(trip_changes_clean, file = here("data", "derived_data", "trip_changes_clean.csv"))
