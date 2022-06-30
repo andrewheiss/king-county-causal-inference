@@ -104,15 +104,8 @@ apc_stops_clean <- apc_stops %>%
                               day_type == 2 ~ "Sunday")) %>% 
   
 # add route change dates corresponding to major/minor change codes to the stop level apc
-  left_join(trip_changes_clean, by = "trip_id") 
-# free up some memory by removing the raw data
-  rm(apc_stops)
-```
-
-
-```{r cleaning apc stops data}
-apc_stops_clean <- apc_stops_clean %>% 
-#  mutate(date = ymd(date)) %>%
+  left_join(trip_changes_clean, by = "trip_id") %>% 
+# generate dummy indicating whether under route change
   mutate(under_temp_change = ifelse(!is.na(change_start_date) &
                                       date>= change_start_date & date <= change_end_date, TRUE, FALSE),
 #KMC suggests using data after 2020/09/19 due to major change on that date but also welcome analyzing the full time range
@@ -127,13 +120,15 @@ head(apc_stops_clean)
 apc_stop_day <- apc_stops_clean %>% 
   group_by(stop_id, date) %>% 
   summarise(day_type = first(day_type),
+            after_major_change = first(after_major_change),
+            after_reinstate = first(after_reinstate),
             boarding_day_count = sum(boarding_num),
-            alighting_day_count = sum(alighting_num)
-# please see note
-#           under_change_ratio = n(under_temp_change == TRUE) / 
-#           n()
-            ) %>% 
-mutate(stop_encounter_day_count = boarding_day_count + alighting_day_count)
+            alighting_day_count = sum(alighting_num),
+            number_of_rows = n(),
+            number_under_temp = sum(under_temp_change == TRUE))%>% 
+  
+mutate(under_change_ratio = number_under_temp / number_of_rows,
+       stop_encounter_day_count = boarding_day_count + alighting_day_count)
 
 head(apc_stop_day)
 
@@ -147,18 +142,9 @@ The two clean data sets are ready to merge but since the they are too large to m
 ## merge stop level apc and 
 ## save clean data
 ```{r save data}
-#rm(apc_stops) # free up some space
 #write.csv(trip_changes_clean, file = here("data", "derived_data", "trip_changes_clean.csv"))
 #write.csv(apc_stops_clean, file = here("data", "derived_data", "apc_stops_clean.csv")) 
 #still couldn't run
   
 ```
-```{r explore data}
-# to delete later 
-nrow(trip_changes_clean)
-n_distinct(trip_changes_clean$trip_id)
-n_distinct(trip_changes$TRIP_ID)
-n_distinct(apc_stops$STOP_ID)
-```
-
 
