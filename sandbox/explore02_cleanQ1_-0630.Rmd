@@ -9,9 +9,13 @@ editor_options:
 library(tidyverse)
 library(here)
 library(sf)
+library(tigris)
 library(tidycensus)
 library(data.table)
 library(lubridate)
+library(marginaleffects)
+library(scales)
+library(ggokabeito)
 ```
 
 ## Load Q1 data
@@ -242,23 +246,165 @@ apc_stop_final <- apc_stop_day %>%
 ```
 
 
-```{r model TWFE with controls}
-model_did <- lm(stop_encounter_day_count ~ after_reinstate +
-                under_change_ratio+
-                bg_pct_white * after_reinstate +
-                bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
-                bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent,
-                data = apc_stop_final)
-summary(model_did)
+```{r}
+apc_stops_after <- apc_stop_final %>% 
+  filter(after_major_change == TRUE) %>% 
+  mutate(day_number = yday(date))
 ```
 
 
 
-## save clean data
-```{r save data}
-#write.csv(trip_changes_clean, file = here("data", "derived_data", "trip_changes_clean.csv"))
-#write.csv(apc_stops_clean, file = here("data", "derived_data", "apc_stops_clean.csv")) 
-#still couldn't run
-  
+
+# Initial models ----
+
+```{r king county theme}
+theme_kc <- function() {
+  theme_minimal() +
+    theme(panel.grid.minor = element_blank(),
+          plot.background = element_rect(fill = "white", color = NA),
+          plot.title = element_text(face = "bold"),
+          axis.title = element_text(face = "bold"),
+          strip.text = element_text(face = "bold"),
+          strip.background = element_rect(fill = "grey80", color = NA),
+          legend.title = element_text(face = "bold"))
+}
 ```
+
+## Percent white * after_reinstate ----
+
+```{r white-after_reinstate}
+model_q1a <- lm(stop_encounter_day_count ~ after_reinstate +
+                  under_change_ratio +
+                  bg_pct_white * after_reinstate +
+                  bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+                  bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent +
+                  day_number,
+                data = apc_stops_after)
+
+mfx_model_q1a <- marginaleffects(model_q1a, variables = "after_reinstate", 
+                                 newdata = datagrid(bg_pct_white = seq(0, 1, 0.01)))
+
+summary(mfx_model_q1a)
+
+saveRDS(model_q1a, here("output", "model_q1a.rds"))
+saveRDS(mfx_model_q1a, here("output", "mfx_model_q1a.rds"))
+
+plot_mfx_model_q1a <- ggplot(mfx_model_q1a, aes(x = bg_pct_white, y = dydx)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  geom_line() +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Percent white (block group level)",
+       y = "Effect of after_reinstate (marginal effect)") +
+  theme_kc()
+
+ggsave(here("output", "model_q1a_mfx.png"), plot_mfx_model_q1a,
+       width = 6, height = (6 * 0.618))
+ggsave(here("output", "model_q1a_mfx.pdf"), plot_mfx_model_q1a,
+       width = 6, height = (6 * 0.618))
+
+```
+
+
+## Education * after_reinstate ----
+
+
+```{r education - after_reinstate}
+model_q1b <- lm(stop_encounter_day_count ~ after_reinstate +
+                  under_change_ratio +
+                  bg_pct_ba * after_reinstate +
+                  bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+                  bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent +
+                  day_number,
+                data = apc_stops_after)
+
+mfx_model_q1b <- marginaleffects(model_q1b, variables = "after_reinstate", 
+                                 newdata = datagrid(bg_pct_ba = seq(0, 1, 0.01)))
+
+summary(mfx_model_q1b)
+
+saveRDS(model_q1b, here("output", "model_q1b.rds"))
+saveRDS(mfx_model_q1b, here("output", "mfx_model_q1b.rds"))
+
+plot_mfx_model_q1b <- ggplot(mfx_model_q1b, aes(x = bg_pct_ba, y = dydx)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  geom_line() +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "Percent with BA (block group level)",
+       y = "Effect of after_reinstate (marginal effect)") +
+  theme_kc()
+
+ggsave(here("output", "model_q1b_mfx.png"), plot_mfx_model_q1b,
+       width = 6, height = (6 * 0.618))
+ggsave(here("output", "model_q1b_mfx.pdf"), plot_mfx_model_q1b,
+       width = 6, height = (6 * 0.618))
+```
+
+
+
+# ## Income * after_reinstate ----
+
+```{r income - after_reinstate}
+model_q1c <- lm(stop_encounter_day_count ~ after_reinstate +
+                  under_change_ratio +
+                  bg_income * after_reinstate +
+                  bg_pct_white + bg_pct_male + bg_pct_hs + bg_pct_ba + bg_internet + 
+                  bg_travel_time_per_capita + bg_pub_trans_per_capita + bg_income + bg_median_rent +
+                  day_number,
+                data = apc_stops_after)
+
+mfx_model_q1c <- marginaleffects(model_q1c, variables = "after_reinstate", 
+                                 newdata = datagrid(bg_income = seq(0, 250000, 1000)))
+
+summary(mfx_model_q1c)
+
+saveRDS(model_q1c, here("output", "model_q1c.rds"))
+saveRDS(mfx_model_q1c, here("output", "mfx_model_q1c.rds"))
+
+plot_mfx_model_q1c <- ggplot(mfx_model_q1c, aes(x = bg_income, y = dydx)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  geom_line() +
+  scale_x_continuous(labels = scales::dollar) +
+  labs(x = "Average block group income",
+       y = "Effect of after_reinstate (marginal effect)") +
+  theme_kc()
+
+ggsave(here("output", "model_q1c_mfx.png"), plot_mfx_model_q1c,
+       width = 6, height = (6 * 0.618))
+ggsave(here("output", "model_q1c_mfx.pdf"), plot_mfx_model_q1c,
+       width = 6, height = (6 * 0.618))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

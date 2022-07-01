@@ -7,6 +7,9 @@
 # data/raw_data/
 # data/derived_data/
 
+# output
+# output/
+
 # knitr and caching stuff
 **/*_files/*
 **/*_cache/*
