@@ -8,7 +8,7 @@
 # data/derived_data/
 
 # output
-# output/
+output/
 
 # knitr and caching stuff
 **/*_files/*
